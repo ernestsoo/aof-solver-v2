@@ -318,18 +318,38 @@ All three multiway functions implemented in `src/equity.py`.
 **All sanity checks passed** (verified inline with synthetic matrix).
 
 ### 2.4 — Test fixture and tests for equity
-- [ ] Create `tests/fixtures/` directory
-- [ ] Create `tests/fixtures/tiny_equity.npy` — 169×169 matrix with known values for AA(idx 0), KK(idx 1), QQ(idx 2), 72o(idx ~168). Rest = 0.5.
+- [x] Create `tests/fixtures/` directory
+- [x] Create `tests/fixtures/tiny_equity.npy` — 169×169 matrix with known values for AA(idx 0), KK(idx 1), QQ(idx 2), 72o(idx ~168). Rest = 0.5.
   - AA vs KK ~ 0.82, AA vs QQ ~ 0.82, KK vs QQ ~ 0.82
-- [ ] Create `tests/test_equity.py`
-- [ ] Test: load returns (169, 169) shape
-- [ ] Test: `matrix[i][j] + matrix[j][i]` ~ 1.0 (on fixture)
-- [ ] Test: hand_vs_range_equity with single hand == hand_vs_hand
-- [ ] Test: eq3_approx normalizes (probabilities sum to ~1)
-- [ ] **Run `pytest tests/test_equity.py -v`** — must pass with fixture, < 5s
+- [x] Create `tests/test_equity.py`
+- [x] Test: load returns (169, 169) shape
+- [x] Test: `matrix[i][j] + matrix[j][i]` ~ 1.0 (on fixture)
+- [x] Test: hand_vs_range_equity with single hand == hand_vs_hand
+- [x] Test: eq3_approx normalizes (probabilities sum to ~1)
+- [x] **Run `pytest tests/test_equity.py -v`** — must pass with fixture, < 5s
 
 **Notes:**
-_(agent fills in after completing)_
+Created `tests/fixtures/tiny_equity.npy` using `np.full((169,169), 0.5, dtype=np.float32)` then patching known values:
+- matrix[0,1]=0.82, matrix[1,0]=0.18 (AA vs KK)
+- matrix[0,2]=0.82, matrix[2,0]=0.18 (AA vs QQ)
+- matrix[1,2]=0.82, matrix[2,1]=0.18 (KK vs QQ)
+- matrix[0,168]=0.87, matrix[168,0]=0.13 (AA vs 72o)
+- Diagonal stays 0.5 (default value)
+
+Created `tests/test_equity.py` with 11 tests (1 skipped if real matrix absent):
+- `test_fixture_shape` — shape == (169, 169)
+- `test_fixture_dtype` — dtype == float32
+- `test_symmetry` — matrix + matrix.T ≈ 1.0 everywhere (tol 1e-5)
+- `test_diagonal` — np.diag(matrix) all == 0.5
+- `test_aa_vs_kk` — hand_vs_hand_equity(0,1,matrix) ≈ 0.82
+- `test_hand_vs_range_single` — single-hand range mask (KK only) gives same as direct lookup
+- `test_hand_vs_range_empty` — empty mask returns 0.5
+- `test_eq3_approx_sum` — eq3_approx(AA,KK,QQ) + eq3_approx(KK,AA,QQ) + eq3_approx(QQ,AA,KK) ≈ 1.0 (tol 1e-4)
+- `test_eq3_approx_aa_dominant` — AA 3-way equity > 0.5
+- `test_load_equity_matrix_missing` — FileNotFoundError on nonexistent path
+- `test_load_real_matrix` — skip if data/equity_matrix.npy absent; checks shape (169,169)
+
+pytest output: **10 passed, 1 skipped in 0.11s** ✓
 
 ---
 
