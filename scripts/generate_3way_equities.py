@@ -75,7 +75,7 @@ OUTPUT_PATH: str = os.path.join(_ROOT, "data", "equity_3way.npy")
 CHECKPOINT_PATH: str = os.path.join(_ROOT, "data", "equity_3way_checkpoint.npy")
 
 # ---------------------------------------------------------------------------
-# Precomputed deck — 52 eval7.Card objects in RANKS x SUITS order
+# Precomputed deck — 52 card strings in RANKS x SUITS order (e.g. 'As', 'Kh')
 # (Module-level so workers inherit it via fork without re-building.)
 # ---------------------------------------------------------------------------
 
@@ -131,7 +131,7 @@ def compute_triplet_equity(
     Algorithm:
         For each valid specific combo triple (no shared cards across all 3 hands):
           Deal N_BOARDS random 5-card boards from the 46 remaining cards.
-          Evaluate all three 7-card hands with eval7 (higher score wins).
+          Evaluate all three 7-card hands with phevaluator (lower score = better).
           Credit each player their equity share (1.0 on win, split on tie).
         Average equity_i, equity_j, equity_k across all valid combo triples.
 

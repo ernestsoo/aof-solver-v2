@@ -756,6 +756,43 @@ _(agent fills in after completing)_
 
 ---
 
+---
+
+## Validation Pass (2026-03-08)
+
+### Test results
+**142 passed, 1 skipped** (skip = `test_load_real_matrix`, requires `data/equity_matrix.npy`).
+All tests in `tests/test_hands.py`, `tests/test_equity.py`, `tests/test_solver.py` pass cleanly in < 1s.
+
+### phevaluator sanity checks
+- AA vs KK: **0.8195** (expect ~0.82) ✓
+- AA vs 72o: **0.8720** (expect ~0.87) ✓
+- AA=0.664, KK=0.180, QQ=0.156, sum=1.000 ✓
+- Win condition `score_i < score_j` ✓, tie `score_i == score_j` ✓, 3-way `min(...)` ✓
+- Card strings plain 'As', 'Kh' format ✓
+
+### Solver validation
+All 14 EV functions return (169,) with no NaN/Inf and AA > 72o EV ✓
+`solve_nash` converged in 6 iterations on synthetic matrix ✓
+All pot sizes and EV formulas match CLAUDE.md exactly ✓
+
+### Bugs found and fixed
+1. **`generate_3way_equities.py` line ~79**: Stale comment said "52 eval7.Card objects" — corrected to "52 card strings". (Code was correct; only the comment was wrong.)
+2. **`generate_3way_equities.py` line ~134**: Docstring in `compute_triplet_equity` said "eval7 (higher score wins)" — corrected to "phevaluator (lower score = better)". (Code used `min()` correctly; comment was left over from pre-migration.)
+
+### Bugs found but NOT fixed
+None.
+
+### Formula audit (CLAUDE.md vs solver.py)
+Verified all 15 terminal node pot sizes and EV formulas against CLAUDE.md. No discrepancies:
+- T4 steal 1.5, T5 pot 20.5 (SB dead), T6 pot 21.0 (BB dead), T7 pot 30.0 ✓
+- T8 steal 1.5, T9 pot 20.5, T10 pot 21.0, T11 pot 30.0 ✓
+- T12 pot 21.5, T13 pot 30.5, T14 pot 31.0, T15 pot 40.0 ✓
+- SB EV(fold)=-0.5, BB EV(fold)=-1.0 correctly used in `best_response` calls ✓
+- `eq3_vs_ranges_vec` and `eq4_vs_ranges_vec` called with correct range arguments ✓
+
+---
+
 ## Task Dependency Map
 
 ```
