@@ -49,7 +49,7 @@ from src.hands import ALL_HANDS, HandInfo, RANKS, SUITS
 
 # Monte Carlo board samples per specific combo-pair matchup.
 # Lower = faster but noisier. 1000 gives ~1% standard error per matchup.
-N_BOARDS: int = 1000
+N_BOARDS: int = 5000
 
 # Path where the matrix is saved (relative to project root)
 OUTPUT_PATH: str = os.path.join(_ROOT, "data", "equity_matrix.npy")
