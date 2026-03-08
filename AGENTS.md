@@ -356,24 +356,52 @@ pytest output: **10 passed, 1 skipped in 0.11s** ✓
 ## Phase 3: Nash Solver (`src/solver.py`)
 
 ### 3.1 — SolverResult dataclass and strategy storage
-- [ ] Create `src/solver.py`
-- [ ] Define all 14 strategy array names (see CLAUDE.md "Decision Points Per Position"):
+- [x] Create `src/solver.py`
+- [x] Define all 14 strategy array names (see CLAUDE.md "Decision Points Per Position"):
   - Push (3): `push_co`, `push_btn_open`, `push_sb_open`
   - Call (11): `call_btn_vs_co`, `call_sb_vs_co`, `call_sb_vs_btn`, `call_sb_vs_co_btn`, `call_bb_vs_sb`, `call_bb_vs_btn`, `call_bb_vs_co`, `call_bb_vs_btn_sb`, `call_bb_vs_co_sb`, `call_bb_vs_co_btn`, `call_bb_vs_co_btn_sb`
-- [ ] `SolverResult` dataclass with: strategies dict, ev_table, iterations, converged, exploitability
-- [ ] `initial_strategies(combo_weights) -> dict` — init all 14 arrays. Push = top 30-50% depending on position. Call = top 20%.
+- [x] `SolverResult` dataclass with: strategies dict, ev_table, iterations, converged, exploitability
+- [x] `initial_strategies(combo_weights) -> dict` — init all 14 arrays. Push = top 30-50% depending on position. Call = top 20%.
 
 **Notes:**
-_(agent fills in after completing)_
+Created `src/solver.py`. Key details:
+
+- `STRATEGY_NAMES: list[str]` — module-level constant, 14 names in canonical order; module-level assert verifies count and uniqueness.
+- `SolverResult` — `@dataclass` with fields:
+  - `strategies: dict[str, np.ndarray]` — 14 strategy arrays
+  - `ev_table: dict[str, np.ndarray] = field(default_factory=dict)` — EV per hand; empty until solve runs
+  - `iterations: int = 0`
+  - `converged: bool = False`
+  - `exploitability: float = 0.0`
+- `initial_strategies(combo_weights: np.ndarray) -> dict[str, np.ndarray]`:
+  - `push_co` = `top_n_percent(30.0)` — 63 hands
+  - `push_btn_open` = `top_n_percent(40.0)` — 81 hands
+  - `push_sb_open` = `top_n_percent(50.0)` — 102 hands
+  - All 11 `call_*` = `top_n_percent(20.0)` — 44 hands each
+  - Each array is `.copy()` so mutations are independent
+  - Internal assert: 14 keys, each shape (169,), dtype float64
+
+**Sanity checks verified:** 14 keys, all (169,) float64, binary values, push ordering push_sb ≥ push_btn ≥ push_co ≥ call ✓
 
 ### 3.2 — Fold probability helpers
-- [ ] `fold_prob(strategy: np.ndarray, combo_weights: np.ndarray) -> float` — probability a random hand folds
+- [x] `fold_prob(strategy: np.ndarray, combo_weights: np.ndarray) -> float` — probability a random hand folds
   - `= np.dot(1 - strategy, combo_weights) / combo_weights.sum()`
-- [ ] `call_prob(strategy, combo_weights) -> float` — 1 - fold_prob
-- [ ] These are scalars used in every EV computation (branch probabilities in game tree)
+- [x] `call_prob(strategy, combo_weights) -> float` — 1 - fold_prob
+- [x] These are scalars used in every EV computation (branch probabilities in game tree)
 
 **Notes:**
-_(agent fills in after completing)_
+Both functions added to `src/solver.py`.
+
+**Signatures:**
+- `fold_prob(strategy: np.ndarray, combo_weights: np.ndarray) -> float`
+  — single `np.dot` + division, O(169), no loops.
+- `call_prob(strategy: np.ndarray, combo_weights: np.ndarray) -> float`
+  — delegates to `1.0 - fold_prob(...)`.
+
+**Sanity checks verified:**
+- `fold_prob(all_zeros, COMBO_WEIGHTS) == 1.0` ✓
+- `fold_prob(all_ones,  COMBO_WEIGHTS) == 0.0` ✓
+- `fold_prob + call_prob == 1.0` for all 14 initial strategies ✓
 
 ### 3.3 — EV computation: CO open push
 - [ ] `ev_push_co(equity_matrix, combo_weights, strategies) -> np.ndarray` — returns (169,) EV for each hand
