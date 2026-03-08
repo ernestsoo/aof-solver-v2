@@ -204,3 +204,107 @@ def eq4_vs_ranges(
         + 1e-10
     )
     return raw / denom
+
+
+# ---------------------------------------------------------------------------
+# Vectorized multiway equity — returns (169,) arrays for all hands at once
+# ---------------------------------------------------------------------------
+# These are the "vec" variants used in the EV computation functions in solver.py.
+# Each operates on all 169 hands simultaneously via matrix multiplication.
+
+
+def hand_vs_range_equity_vec(
+    matrix: np.ndarray,
+    range_mask: np.ndarray,
+    combo_weights: np.ndarray,
+) -> np.ndarray:
+    """Return combo-weighted equity of every hand against a range (vectorized).
+
+    Computes equity for all 169 hero hands simultaneously via matrix multiply:
+        weighted = range_mask * combo_weights          # (169,)
+        equity   = matrix @ weighted / weighted.sum() # (169,)
+
+    Args:
+        matrix:        (169, 169) equity matrix, matrix[i][j] = equity of i vs j.
+        range_mask:    (169,) array, 1.0 for hands in the opponent range (may be fractional).
+        combo_weights: (169,) array of combo counts (6/4/12).
+
+    Returns:
+        (169,) float64 array: equity[i] = equity of hand i against the range.
+        Returns np.full(169, 0.5) if the range is empty (denominator == 0).
+    """
+    weighted = range_mask * combo_weights
+    denom = weighted.sum()
+    if denom == 0.0:
+        return np.full(169, 0.5)
+    return (matrix @ weighted) / denom
+
+
+def eq3_vs_ranges_vec(
+    matrix: np.ndarray,
+    range1_mask: np.ndarray,
+    range2_mask: np.ndarray,
+    combo_weights: np.ndarray,
+) -> np.ndarray:
+    """Return approximate 3-way equity for every hand vs two ranges (vectorized).
+
+    Applies the pairwise independence approximation across all 169 hands:
+        a = hand_vs_range_equity_vec(matrix, range1, combo_weights)  # (169,)
+        b = hand_vs_range_equity_vec(matrix, range2, combo_weights)  # (169,)
+        raw = a * b
+        equity = raw / (raw + (1-a)*b + a*(1-b) + 1e-10)
+
+    Args:
+        matrix:        (169, 169) equity matrix.
+        range1_mask:   (169,) mask for opponent 1's range.
+        range2_mask:   (169,) mask for opponent 2's range.
+        combo_weights: (169,) combo count weights.
+
+    Returns:
+        (169,) float64 array: approximate 3-way equity for each hand.
+    """
+    a = hand_vs_range_equity_vec(matrix, range1_mask, combo_weights)
+    b = hand_vs_range_equity_vec(matrix, range2_mask, combo_weights)
+    raw = a * b
+    denom = raw + (1.0 - a) * b + a * (1.0 - b) + 1e-10
+    return raw / denom
+
+
+def eq4_vs_ranges_vec(
+    matrix: np.ndarray,
+    range1_mask: np.ndarray,
+    range2_mask: np.ndarray,
+    range3_mask: np.ndarray,
+    combo_weights: np.ndarray,
+) -> np.ndarray:
+    """Return approximate 4-way equity for every hand vs three ranges (vectorized).
+
+    Extends the pairwise independence approximation to 4-way pots:
+        a = hand_vs_range_equity_vec(matrix, range1, combo_weights)  # (169,)
+        b = hand_vs_range_equity_vec(matrix, range2, combo_weights)  # (169,)
+        c = hand_vs_range_equity_vec(matrix, range3, combo_weights)  # (169,)
+        raw = a * b * c
+        equity = raw / (raw + (1-a)*b*c + a*(1-b)*c + a*b*(1-c) + 1e-10)
+
+    Args:
+        matrix:        (169, 169) equity matrix.
+        range1_mask:   (169,) mask for opponent 1's range.
+        range2_mask:   (169,) mask for opponent 2's range.
+        range3_mask:   (169,) mask for opponent 3's range.
+        combo_weights: (169,) combo count weights.
+
+    Returns:
+        (169,) float64 array: approximate 4-way equity for each hand.
+    """
+    a = hand_vs_range_equity_vec(matrix, range1_mask, combo_weights)
+    b = hand_vs_range_equity_vec(matrix, range2_mask, combo_weights)
+    c = hand_vs_range_equity_vec(matrix, range3_mask, combo_weights)
+    raw = a * b * c
+    denom = (
+        raw
+        + (1.0 - a) * b * c
+        + a * (1.0 - b) * c
+        + a * b * (1.0 - c)
+        + 1e-10
+    )
+    return raw / denom

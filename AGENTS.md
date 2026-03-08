@@ -404,14 +404,40 @@ Both functions added to `src/solver.py`.
 - `fold_prob + call_prob == 1.0` for all 14 initial strategies ✓
 
 ### 3.3 — EV computation: CO open push
-- [ ] `ev_push_co(equity_matrix, combo_weights, strategies) -> np.ndarray` — returns (169,) EV for each hand
-- [ ] Implement all 8 terminal scenarios for CO push (Terminals 8-15 in CLAUDE.md)
-- [ ] Each scenario: probability x (equity x pot - risk)
-- [ ] **Must be fully vectorized** — one (169,) result array, no loops over hands
-- [ ] EV(fold) for CO = 0.0
+- [x] `ev_push_co(equity_matrix, combo_weights, strategies) -> np.ndarray` — returns (169,) EV for each hand
+- [x] Implement all 8 terminal scenarios for CO push (Terminals 8-15 in CLAUDE.md)
+- [x] Each scenario: probability x (equity x pot - risk)
+- [x] **Must be fully vectorized** — one (169,) result array, no loops over hands
+- [x] EV(fold) for CO = 0.0
 
 **Notes:**
-_(agent fills in after completing)_
+Added three vectorized equity helpers to `src/equity.py` (required before ev_push_co could be written):
+
+**New functions in `src/equity.py`:**
+- `hand_vs_range_equity_vec(matrix, range_mask, combo_weights) -> np.ndarray`
+  — (169,) equity of every hand vs a range via single matrix multiply: `(matrix @ weighted) / denom`.
+  Returns `np.full(169, 0.5)` for empty range.
+- `eq3_vs_ranges_vec(matrix, range1_mask, range2_mask, combo_weights) -> np.ndarray`
+  — (169,) 3-way pairwise-independence approximation. Calls hand_vs_range_equity_vec twice.
+- `eq4_vs_ranges_vec(matrix, range1_mask, range2_mask, range3_mask, combo_weights) -> np.ndarray`
+  — (169,) 4-way extension of above. Three matrix multiplies total.
+
+**New function in `src/solver.py`:**
+- `ev_push_co(equity_matrix, combo_weights, strategies) -> np.ndarray`
+  — Precomputes 7 fold/call scalars + 3 HU equity vecs + 3 three-way equity vecs + 1 four-way equity vec.
+  — Accumulates EV for all 8 terminals (T8–T15) into a (169,) array via numpy ops only.
+  — EV(fold) for CO = 0.0 (not computed here; caller compares against 0).
+  — Updated imports in solver.py to include the three new vec functions.
+
+**Key design decisions:**
+- `hand_vs_range_equity_vec` signature differs from the scalar `hand_vs_range_equity`: matrix comes first (matches numpy matrix-multiply order); no `h_idx` parameter.
+- The three-way equity for Terminal 11 uses `call_sb_vs_co` as range1 and `call_bb_vs_co_sb` as range2 (BB's decision node given SB already called CO — correct conditioning).
+- Similarly Terminal 13 uses `call_btn_vs_co` + `call_bb_vs_co_btn`; Terminal 14 uses `call_btn_vs_co` + `call_sb_vs_co_btn`.
+- Terminal 15 (4-way) uses `call_btn_vs_co`, `call_sb_vs_co_btn`, `call_bb_vs_co_btn_sb` — each opponent's call node correctly conditioned on prior callers.
+
+**Tests:** `tests/test_solver.py` created with 23 tests (23 passed, 0.23s):
+- TestSolverResult (2), TestInitialStrategies (6), TestFoldCallProb (5) — cover tasks 3.1/3.2
+- TestEvPushCo (10): shape/dtype, all-fold gives +1.5 steal, AA > 72o, 72o negative vs all-callers, AA positive vs all-callers, no NaN/Inf, float32 tolerance, steal component isolation
 
 ### 3.4 — EV computation: BTN decisions
 - [ ] `ev_push_btn_open(...)` — BTN open push when CO folded (Terminals 4-7)
