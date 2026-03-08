@@ -12,7 +12,13 @@ from src.solver import (
     STRATEGY_NAMES,
     SolverResult,
     call_prob,
+    ev_call_btn_vs_co,
+    ev_call_sb_vs_btn,
+    ev_call_sb_vs_co,
+    ev_call_sb_vs_co_btn,
+    ev_push_btn_open,
     ev_push_co,
+    ev_push_sb_open,
     fold_prob,
     initial_strategies,
 )
@@ -189,3 +195,186 @@ class TestEvPushCo:
         strats = {name: np.zeros(169) for name in STRATEGY_NAMES}
         ev = ev_push_co(tiny_matrix, COMBO_WEIGHTS, strats)
         np.testing.assert_allclose(ev, 1.5, atol=1e-10)
+
+
+# ---------------------------------------------------------------------------
+# Task 3.4 — ev_push_btn_open and ev_call_btn_vs_co
+# ---------------------------------------------------------------------------
+
+
+class TestEvPushBtnOpen:
+    def test_returns_shape(self, tiny_matrix, all_call_strategies):
+        ev = ev_push_btn_open(tiny_matrix, COMBO_WEIGHTS, all_call_strategies)
+        assert ev.shape == (169,)
+
+    def test_returns_float64(self, tiny_matrix, all_call_strategies):
+        ev = ev_push_btn_open(tiny_matrix, COMBO_WEIGHTS, all_call_strategies)
+        assert ev.dtype == np.float64
+
+    def test_no_nan_or_inf(self, tiny_matrix, nash_init_strategies):
+        ev = ev_push_btn_open(tiny_matrix, COMBO_WEIGHTS, nash_init_strategies)
+        assert np.all(np.isfinite(ev))
+
+    def test_all_fold_gives_steal(self, tiny_matrix, all_fold_strategies):
+        """All opponents fold → BTN steals 1.5bb (SB 0.5 + BB 1.0 posted)."""
+        ev = ev_push_btn_open(tiny_matrix, COMBO_WEIGHTS, all_fold_strategies)
+        np.testing.assert_allclose(ev, 1.5, atol=1e-10)
+
+    def test_aa_beats_72o(self, tiny_matrix, nash_init_strategies):
+        ev = ev_push_btn_open(tiny_matrix, COMBO_WEIGHTS, nash_init_strategies)
+        aa_idx  = HAND_MAP["AA"].index
+        o72_idx = HAND_MAP["72o"].index
+        assert ev[aa_idx] > ev[o72_idx]
+
+    def test_72o_negative_all_callers(self, tiny_matrix, all_call_strategies):
+        """72o has near-0.5 equity; EV = 0.5 * pot - 10 < 0 against callers."""
+        ev = ev_push_btn_open(tiny_matrix, COMBO_WEIGHTS, all_call_strategies)
+        assert ev[HAND_MAP["72o"].index] < 0.0
+
+    def test_aa_positive_all_callers(self, tiny_matrix, all_call_strategies):
+        ev = ev_push_btn_open(tiny_matrix, COMBO_WEIGHTS, all_call_strategies)
+        assert ev[HAND_MAP["AA"].index] > 0.0
+
+
+class TestEvCallBtnVsCo:
+    def test_returns_shape(self, tiny_matrix, all_call_strategies):
+        ev = ev_call_btn_vs_co(tiny_matrix, COMBO_WEIGHTS, all_call_strategies)
+        assert ev.shape == (169,)
+
+    def test_returns_float64(self, tiny_matrix, all_call_strategies):
+        ev = ev_call_btn_vs_co(tiny_matrix, COMBO_WEIGHTS, all_call_strategies)
+        assert ev.dtype == np.float64
+
+    def test_no_nan_or_inf(self, tiny_matrix, nash_init_strategies):
+        ev = ev_call_btn_vs_co(tiny_matrix, COMBO_WEIGHTS, nash_init_strategies)
+        assert np.all(np.isfinite(ev))
+
+    def test_aa_beats_72o(self, tiny_matrix, nash_init_strategies):
+        ev = ev_call_btn_vs_co(tiny_matrix, COMBO_WEIGHTS, nash_init_strategies)
+        aa_idx  = HAND_MAP["AA"].index
+        o72_idx = HAND_MAP["72o"].index
+        assert ev[aa_idx] > ev[o72_idx]
+
+    def test_aa_positive_vs_nash_co(self, tiny_matrix, nash_init_strategies):
+        """AA calling CO push should have positive EV in fixture (AA equity ~0.82+ vs KK)."""
+        ev = ev_call_btn_vs_co(tiny_matrix, COMBO_WEIGHTS, nash_init_strategies)
+        assert ev[HAND_MAP["AA"].index] > 0.0
+
+    def test_72o_negative_all_callers(self, tiny_matrix, all_call_strategies):
+        """72o should have negative EV calling when everyone else also calls."""
+        ev = ev_call_btn_vs_co(tiny_matrix, COMBO_WEIGHTS, all_call_strategies)
+        assert ev[HAND_MAP["72o"].index] < 0.0
+
+
+# ---------------------------------------------------------------------------
+# Task 3.5 — ev_push_sb_open, ev_call_sb_vs_co, ev_call_sb_vs_btn,
+#             ev_call_sb_vs_co_btn
+# ---------------------------------------------------------------------------
+
+
+class TestEvPushSbOpen:
+    def test_returns_shape(self, tiny_matrix, all_call_strategies):
+        ev = ev_push_sb_open(tiny_matrix, COMBO_WEIGHTS, all_call_strategies)
+        assert ev.shape == (169,)
+
+    def test_returns_float64(self, tiny_matrix, all_call_strategies):
+        ev = ev_push_sb_open(tiny_matrix, COMBO_WEIGHTS, all_call_strategies)
+        assert ev.dtype == np.float64
+
+    def test_no_nan_or_inf(self, tiny_matrix, nash_init_strategies):
+        ev = ev_push_sb_open(tiny_matrix, COMBO_WEIGHTS, nash_init_strategies)
+        assert np.all(np.isfinite(ev))
+
+    def test_all_fold_gives_steal_net_1bb(self, tiny_matrix, all_fold_strategies):
+        """BB always folds → SB steals, net profit = +1.0bb (wins BB's 1.0)."""
+        ev = ev_push_sb_open(tiny_matrix, COMBO_WEIGHTS, all_fold_strategies)
+        np.testing.assert_allclose(ev, 1.0, atol=1e-10)
+
+    def test_aa_beats_72o(self, tiny_matrix, nash_init_strategies):
+        ev = ev_push_sb_open(tiny_matrix, COMBO_WEIGHTS, nash_init_strategies)
+        aa_idx  = HAND_MAP["AA"].index
+        o72_idx = HAND_MAP["72o"].index
+        assert ev[aa_idx] > ev[o72_idx]
+
+    def test_steal_dominant_term(self, tiny_matrix):
+        """With BB folding 90% of the time, steal component should dominate EV."""
+        strats = {name: np.zeros(169) for name in STRATEGY_NAMES}
+        # BB calls 10% of the time (top 10% of hands)
+        from src.hands import top_n_percent
+        strats["call_bb_vs_sb"] = top_n_percent(10.0)
+        ev = ev_push_sb_open(tiny_matrix, COMBO_WEIGHTS, strats)
+        # Fold prob ~ 0.9 → steal component ~ 0.9 * 1.0 = 0.9bb
+        # All EVs should be roughly near +1.0 for weak hands (steal dominant)
+        o72_idx = HAND_MAP["72o"].index
+        assert ev[o72_idx] > 0.5, f"72o EV={ev[o72_idx]:.4f}: steal should dominate with 90% BB fold"
+
+
+class TestEvCallSbVsCo:
+    def test_returns_shape(self, tiny_matrix, all_call_strategies):
+        ev = ev_call_sb_vs_co(tiny_matrix, COMBO_WEIGHTS, all_call_strategies)
+        assert ev.shape == (169,)
+
+    def test_returns_float64(self, tiny_matrix, all_call_strategies):
+        ev = ev_call_sb_vs_co(tiny_matrix, COMBO_WEIGHTS, all_call_strategies)
+        assert ev.dtype == np.float64
+
+    def test_no_nan_or_inf(self, tiny_matrix, nash_init_strategies):
+        ev = ev_call_sb_vs_co(tiny_matrix, COMBO_WEIGHTS, nash_init_strategies)
+        assert np.all(np.isfinite(ev))
+
+    def test_aa_beats_72o(self, tiny_matrix, nash_init_strategies):
+        ev = ev_call_sb_vs_co(tiny_matrix, COMBO_WEIGHTS, nash_init_strategies)
+        assert ev[HAND_MAP["AA"].index] > ev[HAND_MAP["72o"].index]
+
+    def test_aa_positive_vs_nash_co(self, tiny_matrix, nash_init_strategies):
+        ev = ev_call_sb_vs_co(tiny_matrix, COMBO_WEIGHTS, nash_init_strategies)
+        assert ev[HAND_MAP["AA"].index] > 0.0
+
+    def test_72o_negative_all_callers(self, tiny_matrix, all_call_strategies):
+        ev = ev_call_sb_vs_co(tiny_matrix, COMBO_WEIGHTS, all_call_strategies)
+        assert ev[HAND_MAP["72o"].index] < 0.0
+
+
+class TestEvCallSbVsBtn:
+    def test_returns_shape(self, tiny_matrix, all_call_strategies):
+        ev = ev_call_sb_vs_btn(tiny_matrix, COMBO_WEIGHTS, all_call_strategies)
+        assert ev.shape == (169,)
+
+    def test_returns_float64(self, tiny_matrix, all_call_strategies):
+        ev = ev_call_sb_vs_btn(tiny_matrix, COMBO_WEIGHTS, all_call_strategies)
+        assert ev.dtype == np.float64
+
+    def test_no_nan_or_inf(self, tiny_matrix, nash_init_strategies):
+        ev = ev_call_sb_vs_btn(tiny_matrix, COMBO_WEIGHTS, nash_init_strategies)
+        assert np.all(np.isfinite(ev))
+
+    def test_aa_beats_72o(self, tiny_matrix, nash_init_strategies):
+        ev = ev_call_sb_vs_btn(tiny_matrix, COMBO_WEIGHTS, nash_init_strategies)
+        assert ev[HAND_MAP["AA"].index] > ev[HAND_MAP["72o"].index]
+
+    def test_72o_negative_all_callers(self, tiny_matrix, all_call_strategies):
+        ev = ev_call_sb_vs_btn(tiny_matrix, COMBO_WEIGHTS, all_call_strategies)
+        assert ev[HAND_MAP["72o"].index] < 0.0
+
+
+class TestEvCallSbVsCoBtn:
+    def test_returns_shape(self, tiny_matrix, all_call_strategies):
+        ev = ev_call_sb_vs_co_btn(tiny_matrix, COMBO_WEIGHTS, all_call_strategies)
+        assert ev.shape == (169,)
+
+    def test_returns_float64(self, tiny_matrix, all_call_strategies):
+        ev = ev_call_sb_vs_co_btn(tiny_matrix, COMBO_WEIGHTS, all_call_strategies)
+        assert ev.dtype == np.float64
+
+    def test_no_nan_or_inf(self, tiny_matrix, nash_init_strategies):
+        ev = ev_call_sb_vs_co_btn(tiny_matrix, COMBO_WEIGHTS, nash_init_strategies)
+        assert np.all(np.isfinite(ev))
+
+    def test_aa_beats_72o(self, tiny_matrix, nash_init_strategies):
+        ev = ev_call_sb_vs_co_btn(tiny_matrix, COMBO_WEIGHTS, nash_init_strategies)
+        assert ev[HAND_MAP["AA"].index] > ev[HAND_MAP["72o"].index]
+
+    def test_72o_negative_all_callers(self, tiny_matrix, all_call_strategies):
+        """Calling into two callers with 72o should be deeply negative."""
+        ev = ev_call_sb_vs_co_btn(tiny_matrix, COMBO_WEIGHTS, all_call_strategies)
+        assert ev[HAND_MAP["72o"].index] < 0.0

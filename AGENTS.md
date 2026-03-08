@@ -465,24 +465,66 @@ Added three vectorized equity helpers to `src/equity.py` (required before ev_pus
 - TestEvPushCo (10): shape/dtype, all-fold gives +1.5 steal, AA > 72o, 72o negative vs all-callers, AA positive vs all-callers, no NaN/Inf, float32 tolerance, steal component isolation
 
 ### 3.4 — EV computation: BTN decisions
-- [ ] `ev_push_btn_open(...)` — BTN open push when CO folded (Terminals 4-7)
-- [ ] `ev_call_btn_vs_co(...)` — BTN call when CO pushed (Terminals 12-15)
-- [ ] Both return (169,) arrays, fully vectorized
-- [ ] EV(fold) for BTN = 0.0
+- [x] `ev_push_btn_open(...)` — BTN open push when CO folded (Terminals 4-7)
+- [x] `ev_call_btn_vs_co(...)` — BTN call when CO pushed (Terminals 12-15)
+- [x] Both return (169,) arrays, fully vectorized
+- [x] EV(fold) for BTN = 0.0
 
 **Notes:**
-_(agent fills in after completing)_
+Added to `src/solver.py`. Both functions follow the same pattern as `ev_push_co`.
+
+**`ev_push_btn_open(equity_matrix, combo_weights, strategies) -> np.ndarray`**
+- Scalars: f_sb (call_sb_vs_btn), f_bb_btn (call_bb_vs_btn), f_bb_btn_sb (call_bb_vs_btn_sb)
+- Equity vecs: eq_vs_bb, eq_vs_sb (HU), eq3_sb_bb (call_sb_vs_btn + call_bb_vs_btn_sb)
+- T4: f_sb * f_bb_btn * 1.5
+- T5: f_sb * c_bb_btn * (eq_vs_bb * 20.5 - 10)
+- T6: c_sb * f_bb_btn_sb * (eq_vs_sb * 21.0 - 10)
+- T7: c_sb * c_bb_btn_sb * (eq3_sb_bb * 30.0 - 10)
+
+**`ev_call_btn_vs_co(equity_matrix, combo_weights, strategies) -> np.ndarray`**
+- Scalars: f_sb_co_btn (call_sb_vs_co_btn), f_bb_co_btn (call_bb_vs_co_btn), f_bb_co_btn_sb (call_bb_vs_co_btn_sb)
+- Equity vecs: eq_vs_co (push_co HU), eq3_co_bb (push_co + call_bb_vs_co_btn), eq3_co_sb (push_co + call_sb_vs_co_btn), eq4_co_sb_bb (4-way)
+- T12: f_sb_co_btn * f_bb_co_btn * (eq_vs_co * 21.5 - 10)
+- T13: f_sb_co_btn * c_bb_co_btn * (eq3_co_bb * 30.5 - 10)
+- T14: c_sb_co_btn * f_bb_co_btn_sb * (eq3_co_sb * 31.0 - 10)
+- T15: c_sb_co_btn * c_bb_co_btn_sb * (eq4_co_sb_bb * 40.0 - 10)
+
+Tests added to `tests/test_solver.py`: TestEvPushBtnOpen (7 tests), TestEvCallBtnVsCo (6 tests).
+All 58 solver tests pass in 0.37s.
 
 ### 3.5 — EV computation: SB decisions
-- [ ] `ev_push_sb_open(...)` — SB open push when CO+BTN folded (Terminals 2-3)
-- [ ] `ev_call_sb_vs_co(...)` — SB call when CO pushed, BTN folded (Terminals 10-11)
-- [ ] `ev_call_sb_vs_btn(...)` — SB call when BTN pushed, CO folded (Terminals 6-7)
-- [ ] `ev_call_sb_vs_co_btn(...)` — SB call when CO pushed + BTN called (Terminals 14-15)
-- [ ] All return (169,) arrays, vectorized
-- [ ] EV(fold) for SB = -0.5
+- [x] `ev_push_sb_open(...)` — SB open push when CO+BTN folded (Terminals 2-3)
+- [x] `ev_call_sb_vs_co(...)` — SB call when CO pushed, BTN folded (Terminals 10-11)
+- [x] `ev_call_sb_vs_btn(...)` — SB call when BTN pushed, CO folded (Terminals 6-7)
+- [x] `ev_call_sb_vs_co_btn(...)` — SB call when CO pushed + BTN called (Terminals 14-15)
+- [x] All return (169,) arrays, vectorized
+- [x] EV(fold) for SB = -0.5
 
 **Notes:**
-_(agent fills in after completing)_
+Added four functions to `src/solver.py`. EV(fold) = -0.5 for all SB decisions (not computed inside the functions; caller compares ev_action vs -0.5).
+
+**`ev_push_sb_open(equity_matrix, combo_weights, strategies) -> np.ndarray`**
+- T2: f_bb * 1.0  (steal, net profit = +1.0 since SB already posted 0.5)
+- T3: c_bb * (eq_vs_bb * 20.0 - 10.0)
+- Strategies used: call_bb_vs_sb
+
+**`ev_call_sb_vs_co(equity_matrix, combo_weights, strategies) -> np.ndarray`**
+- T10: f_bb_co_sb * (eq_vs_co * 21.0 - 10)
+- T11: c_bb_co_sb * (eq3_co_bb * 30.0 - 10)
+- Strategies used: push_co, call_bb_vs_co_sb
+
+**`ev_call_sb_vs_btn(equity_matrix, combo_weights, strategies) -> np.ndarray`**
+- T6: f_bb_btn_sb * (eq_vs_btn * 21.0 - 10)
+- T7: c_bb_btn_sb * (eq3_btn_bb * 30.0 - 10)
+- Strategies used: push_btn_open, call_bb_vs_btn_sb
+
+**`ev_call_sb_vs_co_btn(equity_matrix, combo_weights, strategies) -> np.ndarray`**
+- T14: f_bb_co_btn_sb * (eq3_co_btn * 31.0 - 10)
+- T15: c_bb_co_btn_sb * (eq4_co_btn_bb * 40.0 - 10)
+- Strategies used: push_co, call_btn_vs_co, call_bb_vs_co_btn_sb
+
+Tests added: TestEvPushSbOpen (6), TestEvCallSbVsCo (6), TestEvCallSbVsBtn (5), TestEvCallSbVsCoBtn (5).
+Total solver tests: 58 passed in 0.37s.
 
 ### 3.6 — EV computation: BB decisions
 - [ ] `ev_call_bb_vs_sb(...)` — Terminal 3

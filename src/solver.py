@@ -249,3 +249,285 @@ def ev_push_co(
     EV += c_btn * c_sb_co_btn * c_bb_co_btn_sb * (eq4_all * 40.0 - 10.0)
 
     return EV
+
+
+# ---------------------------------------------------------------------------
+# EV computation — BTN open push (CO folded)
+# ---------------------------------------------------------------------------
+
+
+def ev_push_btn_open(
+    equity_matrix: np.ndarray,
+    combo_weights: np.ndarray,
+    strategies: dict[str, np.ndarray],
+) -> np.ndarray:
+    """Return the (169,) EV array for BTN open push (CO folded). EV(fold) = 0.
+
+    Covers Terminals 4-7 from CLAUDE.md: BTN pushes after CO folds.
+    Fully vectorized — no Python loops over hands.
+
+    Args:
+        equity_matrix: (169, 169) float32 precomputed equity matrix.
+        combo_weights: (169,) float64 combo count weights (sum = 1326).
+        strategies:    Dict with all 14 strategy arrays. Must contain:
+                       call_sb_vs_btn, call_bb_vs_btn, call_bb_vs_btn_sb.
+
+    Returns:
+        (169,) float64 EV of BTN pushing each hand (bb, net from start).
+        EV(fold) for BTN = 0.0; push is correct when EV > 0.
+    """
+    # Scalar fold/call probabilities
+    f_sb        = fold_prob(strategies["call_sb_vs_btn"],    combo_weights)
+    c_sb        = 1.0 - f_sb
+    f_bb_btn    = fold_prob(strategies["call_bb_vs_btn"],    combo_weights)
+    c_bb_btn    = 1.0 - f_bb_btn
+    f_bb_btn_sb = fold_prob(strategies["call_bb_vs_btn_sb"], combo_weights)
+    c_bb_btn_sb = 1.0 - f_bb_btn_sb
+
+    # Vectorized equity arrays — (169,)
+    eq_vs_bb    = hand_vs_range_equity_vec(equity_matrix, strategies["call_bb_vs_btn"],    combo_weights)
+    eq_vs_sb    = hand_vs_range_equity_vec(equity_matrix, strategies["call_sb_vs_btn"],    combo_weights)
+    eq3_sb_bb   = eq3_vs_ranges_vec(equity_matrix, strategies["call_sb_vs_btn"], strategies["call_bb_vs_btn_sb"], combo_weights)
+
+    EV = np.zeros(169)
+
+    # Terminal 4: BTN steals — SB+BB fold, pot=1.5
+    EV += f_sb * f_bb_btn * 1.5
+
+    # Terminal 5: BTN vs BB — SB folds, pot=20.5 (SB 0.5 dead)
+    EV += f_sb * c_bb_btn * (eq_vs_bb * 20.5 - 10.0)
+
+    # Terminal 6: BTN vs SB — BB folds, pot=21.0 (BB 1.0 dead)
+    EV += c_sb * f_bb_btn_sb * (eq_vs_sb * 21.0 - 10.0)
+
+    # Terminal 7: BTN vs SB vs BB — 3-way, pot=30.0
+    EV += c_sb * c_bb_btn_sb * (eq3_sb_bb * 30.0 - 10.0)
+
+    return EV
+
+
+# ---------------------------------------------------------------------------
+# EV computation — BTN call vs CO push
+# ---------------------------------------------------------------------------
+
+
+def ev_call_btn_vs_co(
+    equity_matrix: np.ndarray,
+    combo_weights: np.ndarray,
+    strategies: dict[str, np.ndarray],
+) -> np.ndarray:
+    """Return the (169,) EV array for BTN calling CO's push. EV(fold) = 0.
+
+    Covers Terminals 12-15 from CLAUDE.md: CO pushed, BTN calls.
+    Fully vectorized — no Python loops over hands.
+
+    Args:
+        equity_matrix: (169, 169) float32 precomputed equity matrix.
+        combo_weights: (169,) float64 combo count weights (sum = 1326).
+        strategies:    Dict with all 14 strategy arrays. Must contain:
+                       push_co, call_sb_vs_co_btn, call_bb_vs_co_btn,
+                       call_bb_vs_co_btn_sb.
+
+    Returns:
+        (169,) float64 EV of BTN calling each hand (bb, net from start).
+        EV(fold) for BTN = 0.0; call is correct when EV > 0.
+    """
+    # Scalar fold/call probabilities
+    f_sb_co_btn    = fold_prob(strategies["call_sb_vs_co_btn"],    combo_weights)
+    c_sb_co_btn    = 1.0 - f_sb_co_btn
+    f_bb_co_btn    = fold_prob(strategies["call_bb_vs_co_btn"],    combo_weights)
+    c_bb_co_btn    = 1.0 - f_bb_co_btn
+    f_bb_co_btn_sb = fold_prob(strategies["call_bb_vs_co_btn_sb"], combo_weights)
+    c_bb_co_btn_sb = 1.0 - f_bb_co_btn_sb
+
+    # Vectorized equity arrays — (169,)
+    eq_vs_co      = hand_vs_range_equity_vec(equity_matrix, strategies["push_co"],            combo_weights)
+    eq3_co_bb     = eq3_vs_ranges_vec(equity_matrix, strategies["push_co"], strategies["call_bb_vs_co_btn"],    combo_weights)
+    eq3_co_sb     = eq3_vs_ranges_vec(equity_matrix, strategies["push_co"], strategies["call_sb_vs_co_btn"],    combo_weights)
+    eq4_co_sb_bb  = eq4_vs_ranges_vec(equity_matrix, strategies["push_co"], strategies["call_sb_vs_co_btn"], strategies["call_bb_vs_co_btn_sb"], combo_weights)
+
+    EV = np.zeros(169)
+
+    # Terminal 12: BTN vs CO — SB+BB fold, pot=21.5 (both blinds dead)
+    EV += f_sb_co_btn * f_bb_co_btn * (eq_vs_co * 21.5 - 10.0)
+
+    # Terminal 13: BTN vs CO vs BB — SB folds, pot=30.5 (SB 0.5 dead)
+    EV += f_sb_co_btn * c_bb_co_btn * (eq3_co_bb * 30.5 - 10.0)
+
+    # Terminal 14: BTN vs CO vs SB — BB folds, pot=31.0 (BB 1.0 dead)
+    EV += c_sb_co_btn * f_bb_co_btn_sb * (eq3_co_sb * 31.0 - 10.0)
+
+    # Terminal 15: 4-way — pot=40.0
+    EV += c_sb_co_btn * c_bb_co_btn_sb * (eq4_co_sb_bb * 40.0 - 10.0)
+
+    return EV
+
+
+# ---------------------------------------------------------------------------
+# EV computation — SB open push (CO+BTN folded)
+# ---------------------------------------------------------------------------
+
+
+def ev_push_sb_open(
+    equity_matrix: np.ndarray,
+    combo_weights: np.ndarray,
+    strategies: dict[str, np.ndarray],
+) -> np.ndarray:
+    """Return the (169,) EV array for SB open push (CO+BTN folded). EV(fold) = -0.5.
+
+    Covers Terminals 2-3 from CLAUDE.md: SB pushes after CO and BTN fold.
+    Fully vectorized — no Python loops over hands.
+
+    SB already posted 0.5bb. Net EV from start of hand:
+        EV(fold) = -0.5
+        EV(push) = f_bb * 1.0  +  c_bb * (eq_vs_bb * 20.0 - 10.0)
+
+    Args:
+        equity_matrix: (169, 169) float32 precomputed equity matrix.
+        combo_weights: (169,) float64 combo count weights (sum = 1326).
+        strategies:    Dict with all 14 strategy arrays. Must contain: call_bb_vs_sb.
+
+    Returns:
+        (169,) float64 EV of SB pushing each hand (bb, net from start).
+        EV(fold) for SB = -0.5; push is correct when EV > -0.5.
+    """
+    f_bb   = fold_prob(strategies["call_bb_vs_sb"], combo_weights)
+    c_bb   = 1.0 - f_bb
+
+    eq_vs_bb = hand_vs_range_equity_vec(equity_matrix, strategies["call_bb_vs_sb"], combo_weights)
+
+    EV = np.zeros(169)
+
+    # Terminal 2: SB steals — BB folds, pot=1.5, net profit = +1.0 (SB keeps their 0.5 + wins BB's 1.0)
+    EV += f_bb * 1.0
+
+    # Terminal 3: SB vs BB — pot=20.0 (heads-up, no dead money)
+    EV += c_bb * (eq_vs_bb * 20.0 - 10.0)
+
+    return EV
+
+
+# ---------------------------------------------------------------------------
+# EV computation — SB call vs CO push (BTN folded)
+# ---------------------------------------------------------------------------
+
+
+def ev_call_sb_vs_co(
+    equity_matrix: np.ndarray,
+    combo_weights: np.ndarray,
+    strategies: dict[str, np.ndarray],
+) -> np.ndarray:
+    """Return the (169,) EV array for SB calling CO's push (BTN folded). EV(fold) = -0.5.
+
+    Covers Terminals 10-11 from CLAUDE.md: CO pushed, BTN folded, SB calls.
+    Fully vectorized — no Python loops over hands.
+
+    Args:
+        equity_matrix: (169, 169) float32 precomputed equity matrix.
+        combo_weights: (169,) float64 combo count weights (sum = 1326).
+        strategies:    Dict with all 14 strategy arrays. Must contain:
+                       push_co, call_bb_vs_co_sb.
+
+    Returns:
+        (169,) float64 EV of SB calling each hand (bb, net from start).
+        EV(fold) for SB = -0.5; call is correct when EV > -0.5.
+    """
+    f_bb_co_sb = fold_prob(strategies["call_bb_vs_co_sb"], combo_weights)
+    c_bb_co_sb = 1.0 - f_bb_co_sb
+
+    eq_vs_co   = hand_vs_range_equity_vec(equity_matrix, strategies["push_co"],         combo_weights)
+    eq3_co_bb  = eq3_vs_ranges_vec(equity_matrix, strategies["push_co"], strategies["call_bb_vs_co_sb"], combo_weights)
+
+    EV = np.zeros(169)
+
+    # Terminal 10: SB vs CO — BB folds, pot=21.0 (BB 1.0 dead)
+    EV += f_bb_co_sb * (eq_vs_co * 21.0 - 10.0)
+
+    # Terminal 11: SB vs CO vs BB — 3-way, pot=30.0
+    EV += c_bb_co_sb * (eq3_co_bb * 30.0 - 10.0)
+
+    return EV
+
+
+# ---------------------------------------------------------------------------
+# EV computation — SB call vs BTN push (CO folded)
+# ---------------------------------------------------------------------------
+
+
+def ev_call_sb_vs_btn(
+    equity_matrix: np.ndarray,
+    combo_weights: np.ndarray,
+    strategies: dict[str, np.ndarray],
+) -> np.ndarray:
+    """Return the (169,) EV array for SB calling BTN's push (CO folded). EV(fold) = -0.5.
+
+    Covers Terminals 6-7 from CLAUDE.md: BTN pushed (CO folded), SB calls.
+    Fully vectorized — no Python loops over hands.
+
+    Args:
+        equity_matrix: (169, 169) float32 precomputed equity matrix.
+        combo_weights: (169,) float64 combo count weights (sum = 1326).
+        strategies:    Dict with all 14 strategy arrays. Must contain:
+                       push_btn_open, call_bb_vs_btn_sb.
+
+    Returns:
+        (169,) float64 EV of SB calling each hand (bb, net from start).
+        EV(fold) for SB = -0.5; call is correct when EV > -0.5.
+    """
+    f_bb_btn_sb = fold_prob(strategies["call_bb_vs_btn_sb"], combo_weights)
+    c_bb_btn_sb = 1.0 - f_bb_btn_sb
+
+    eq_vs_btn   = hand_vs_range_equity_vec(equity_matrix, strategies["push_btn_open"],       combo_weights)
+    eq3_btn_bb  = eq3_vs_ranges_vec(equity_matrix, strategies["push_btn_open"], strategies["call_bb_vs_btn_sb"], combo_weights)
+
+    EV = np.zeros(169)
+
+    # Terminal 6: SB vs BTN — BB folds, pot=21.0 (BB 1.0 dead)
+    EV += f_bb_btn_sb * (eq_vs_btn * 21.0 - 10.0)
+
+    # Terminal 7: SB vs BTN vs BB — 3-way, pot=30.0
+    EV += c_bb_btn_sb * (eq3_btn_bb * 30.0 - 10.0)
+
+    return EV
+
+
+# ---------------------------------------------------------------------------
+# EV computation — SB call vs CO push + BTN call
+# ---------------------------------------------------------------------------
+
+
+def ev_call_sb_vs_co_btn(
+    equity_matrix: np.ndarray,
+    combo_weights: np.ndarray,
+    strategies: dict[str, np.ndarray],
+) -> np.ndarray:
+    """Return (169,) EV for SB calling when CO pushed and BTN called. EV(fold) = -0.5.
+
+    Covers Terminals 14-15 from CLAUDE.md: CO pushed, BTN called, SB calls.
+    Fully vectorized — no Python loops over hands.
+
+    Args:
+        equity_matrix: (169, 169) float32 precomputed equity matrix.
+        combo_weights: (169,) float64 combo count weights (sum = 1326).
+        strategies:    Dict with all 14 strategy arrays. Must contain:
+                       push_co, call_btn_vs_co, call_bb_vs_co_btn_sb.
+
+    Returns:
+        (169,) float64 EV of SB calling each hand (bb, net from start).
+        EV(fold) for SB = -0.5; call is correct when EV > -0.5.
+    """
+    f_bb_co_btn_sb = fold_prob(strategies["call_bb_vs_co_btn_sb"], combo_weights)
+    c_bb_co_btn_sb = 1.0 - f_bb_co_btn_sb
+
+    eq3_co_btn    = eq3_vs_ranges_vec(equity_matrix, strategies["push_co"], strategies["call_btn_vs_co"],        combo_weights)
+    eq4_co_btn_bb = eq4_vs_ranges_vec(equity_matrix, strategies["push_co"], strategies["call_btn_vs_co"], strategies["call_bb_vs_co_btn_sb"], combo_weights)
+
+    EV = np.zeros(169)
+
+    # Terminal 14: SB vs CO vs BTN — BB folds, pot=31.0 (BB 1.0 dead)
+    EV += f_bb_co_btn_sb * (eq3_co_btn * 31.0 - 10.0)
+
+    # Terminal 15: 4-way — pot=40.0
+    EV += c_bb_co_btn_sb * (eq4_co_btn_bb * 40.0 - 10.0)
+
+    return EV
