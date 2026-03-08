@@ -139,12 +139,12 @@ def parse_range(notation: str) -> list[str]:
     """Parse poker range notation into a list of hand names.
 
     Supports:
-    - Empty string → []
-    - "random" → all 169 hands in canonical order
-    - Single hand: "AKs" → ["AKs"]
-    - Pair plus: "TT+" → ["TT", "JJ", "QQ", "KK", "AA"]
-    - Suited plus: "A2s+" → ["A2s", "A3s", ..., "AKs"] (12 hands)
-    - Offsuit plus: "KTo+" → ["KTo", "KJo", "KQo"]
+    - Empty string -> []
+    - "random" -> all 169 hands in canonical order
+    - Single hand: "AKs" -> ["AKs"]
+    - Pair plus: "TT+" -> ["TT", "JJ", "QQ", "KK", "AA"]
+    - Suited plus: "A2s+" -> ["A2s", "A3s", ..., "AKs"] (12 hands)
+    - Offsuit plus: "KTo+" -> ["KTo", "KJo", "KQo"]
     - Comma-separated: "TT+, AKs" combines all tokens
 
     Args:
@@ -170,7 +170,7 @@ def parse_range(notation: str) -> list[str]:
         if token.endswith("+"):
             base = token[:-1]
             if len(base) == 2 and base[0] == base[1]:
-                # Pair plus: "TT+" → TT, JJ, QQ, KK, AA
+                # Pair plus: "TT+" -> TT, JJ, QQ, KK, AA
                 r = RANK_INDEX[base[0]]
                 for i in range(r, -1, -1):
                     name = RANKS[i] + RANKS[i]
@@ -178,7 +178,7 @@ def parse_range(notation: str) -> list[str]:
                         result.append(name)
                         seen.add(name)
             elif base.endswith("s"):
-                # Suited plus: "A2s+" → A2s .. AKs
+                # Suited plus: "A2s+" -> A2s .. AKs
                 r1 = RANK_INDEX[base[0]]
                 r2_start = RANK_INDEX[base[1]]
                 for r2 in range(r2_start, r1, -1):
@@ -187,7 +187,7 @@ def parse_range(notation: str) -> list[str]:
                         result.append(name)
                         seen.add(name)
             elif base.endswith("o"):
-                # Offsuit plus: "KTo+" → KTo, KJo, KQo
+                # Offsuit plus: "KTo+" -> KTo, KJo, KQo
                 r1 = RANK_INDEX[base[0]]
                 r2_start = RANK_INDEX[base[1]]
                 for r2 in range(r2_start, r1, -1):
@@ -204,7 +204,7 @@ def parse_range(notation: str) -> list[str]:
 
 
 def hand_to_grid(name: str) -> tuple[int, int]:
-    """Map a hand name to its (row, col) position in the 13×13 grid.
+    """Map a hand name to its (row, col) position in the 13x13 grid.
 
     Grid layout (row=0..12 maps A..2, same for col):
     - Pairs on the diagonal: row == col == rank1
@@ -227,12 +227,12 @@ def hand_to_grid(name: str) -> tuple[int, int]:
 
 
 def grid_to_hand(row: int, col: int) -> str:
-    """Map a 13×13 grid position to a hand name.
+    """Map a 13x13 grid position to a hand name.
 
     Inverse of hand_to_grid:
-    - row == col → pair (e.g. (0,0) → "AA")
-    - row < col  → suited (e.g. (0,1) → "AKs")
-    - row > col  → offsuit (e.g. (1,0) → "AKo")
+    - row == col -> pair (e.g. (0,0) -> "AA")
+    - row < col  -> suited (e.g. (0,1) -> "AKs")
+    - row > col  -> offsuit (e.g. (1,0) -> "AKo")
 
     Args:
         row: Row index 0-12 (0=A, 12=2).
@@ -247,6 +247,97 @@ def grid_to_hand(row: int, col: int) -> str:
         return RANKS[row] + RANKS[col] + "s"
     else:
         return RANKS[col] + RANKS[row] + "o"
+
+
+SUITS: list[str] = ['s', 'h', 'd', 'c']
+
+
+def range_to_mask(hands: list[str]) -> np.ndarray:
+    """Convert a list of hand names to a (169,) binary mask array.
+
+    Args:
+        hands: List of hand name strings, e.g. ["AA", "AKs", "AKo"].
+
+    Returns:
+        np.ndarray of shape (169,), dtype float64: 1.0 for each included hand,
+        0.0 elsewhere.
+    """
+    mask = np.zeros(169, dtype=np.float64)
+    for name in hands:
+        mask[HAND_MAP[name].index] = 1.0
+    return mask
+
+
+def mask_to_hands(mask: np.ndarray) -> list[str]:
+    """Convert a (169,) binary mask to a list of hand names.
+
+    Inverse of range_to_mask. Returns hands in canonical index order.
+
+    Args:
+        mask: np.ndarray of shape (169,) with values 0.0 or 1.0.
+
+    Returns:
+        List of hand name strings for all positions where mask == 1.0.
+    """
+    return [ALL_HANDS[i].name for i in range(169) if mask[i] == 1.0]
+
+
+def hands_to_range_pct(hands: list[str]) -> float:
+    """Return the combo percentage of a hand list relative to all 1326 combos.
+
+    Args:
+        hands: List of hand name strings.
+
+    Returns:
+        Percentage (0.0 to 100.0). E.g. ["AA"] -> 6/1326*100 ~= 0.452.
+    """
+    total = sum(HAND_MAP[name].combos for name in hands)
+    return total / 1326.0 * 100.0
+
+
+def combos_with_removal(hand: str, blocked_cards: list[str]) -> int:
+    """Return the number of combos for a hand after removing blocked specific cards.
+
+    Enumerates all specific card combos for the hand and counts those where
+    neither card appears in the blocked set. Cards are specified with suit,
+    e.g. "As" (Ace of spades), "Kh" (King of hearts).
+
+    Args:
+        hand: Canonical hand name, e.g. "AKs", "AA", "AKo".
+        blocked_cards: List of specific cards to treat as dead, e.g. ["As", "Kh"].
+
+    Returns:
+        Number of remaining (unblocked) combos, 0 to hand.combos.
+
+    Examples:
+        combos_with_removal("AA", ["As"]) == 3   # AsAh, AsAd, AsAc dead
+        combos_with_removal("AKs", ["As"]) == 3  # AsKs dead
+        combos_with_removal("AKo", ["As"]) == 9  # AsKh, AsKd, AsKc dead
+    """
+    blocked = set(blocked_cards)
+    info = HAND_MAP[hand]
+    r1 = RANKS[info.rank1]
+    r2 = RANKS[info.rank2]
+
+    count = 0
+    if info.hand_type == "pair":
+        # C(4,2) = 6 combos: choose 2 distinct suits for the same rank
+        for i, s1 in enumerate(SUITS):
+            for s2 in SUITS[i + 1:]:
+                if (r1 + s1) not in blocked and (r1 + s2) not in blocked:
+                    count += 1
+    elif info.hand_type == "suited":
+        # 4 combos: same suit for both cards
+        for s in SUITS:
+            if (r1 + s) not in blocked and (r2 + s) not in blocked:
+                count += 1
+    else:  # offsuit
+        # 4*4 - 4 = 12 combos: different suits
+        for s1 in SUITS:
+            for s2 in SUITS:
+                if s1 != s2 and (r1 + s1) not in blocked and (r2 + s2) not in blocked:
+                    count += 1
+    return count
 
 
 def top_n_percent(pct: float) -> np.ndarray:

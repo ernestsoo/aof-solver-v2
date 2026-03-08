@@ -162,13 +162,25 @@ Sanity checks confirmed:
 Note: AGENTS.md checkbox spec listed "KTo+" → [KTo,KJo,KQo,KAo] but KAo is invalid (A is higher rank than K, so rank1 would be A). Task description correctly specifies [KTo,KJo,KQo] — implemented that way.
 
 ### 1.6 — Range utility functions
-- [ ] `range_to_mask(hands: list[str]) -> np.ndarray` — (169,) float array, 1.0 for included hands
-- [ ] `mask_to_hands(mask: np.ndarray) -> list[str]` — reverse
-- [ ] `hands_to_range_pct(hands: list[str]) -> float` — combo % of 1326
-- [ ] `combos_with_removal(hand: str, blocked_cards: list[str]) -> int` — reduced combos when cards are dead
+- [x] `range_to_mask(hands: list[str]) -> np.ndarray` — (169,) float array, 1.0 for included hands
+- [x] `mask_to_hands(mask: np.ndarray) -> list[str]` — reverse
+- [x] `hands_to_range_pct(hands: list[str]) -> float` — combo % of 1326
+- [x] `combos_with_removal(hand: str, blocked_cards: list[str]) -> int` — reduced combos when cards are dead
 
 **Notes:**
-_(agent fills in after completing)_
+Added four functions to `src/hands.py`. Also added `SUITS: list[str] = ['s', 'h', 'd', 'c']` constant.
+
+**Signatures:**
+- `range_to_mask(hands: list[str]) -> np.ndarray` — loops hands, sets mask[HAND_MAP[name].index] = 1.0. O(n).
+- `mask_to_hands(mask: np.ndarray) -> list[str]` — list comprehension over range(169), returns names where mask==1.0. Canonical index order.
+- `hands_to_range_pct(hands: list[str]) -> float` — sums combos for each hand, divides by 1326, multiplies by 100.
+- `combos_with_removal(hand: str, blocked_cards: list[str]) -> int` — enumerates specific card combos:
+  - Pair: C(4,2)=6 combos via nested SUITS loops (s1 < s2 by index)
+  - Suited: 4 combos, one per suit (both cards same suit)
+  - Offsuit: 12 combos (s1 != s2, 4*3 combos)
+  - A combo is dead if EITHER card appears in the blocked set (correct set-union logic)
+
+**Spec discrepancy:** The task specified `combos_with_removal("AKs", ["As", "Ks"]) == 2`, but the correct answer is 3. Both "As" and "Ks" block the SAME combo (AsKs); only 1 combo is removed, leaving 3. The spec incorrectly assumes each blocked card removes a separate combo. Implemented the correct union logic (3 is right). All other sanity checks pass.
 
 ### 1.7 — Tests for Phase 1
 - [ ] Create `tests/__init__.py` (empty)
