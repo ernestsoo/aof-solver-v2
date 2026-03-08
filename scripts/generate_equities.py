@@ -54,6 +54,11 @@ N_BOARDS: int = 1000
 # Path where the matrix is saved (relative to project root)
 OUTPUT_PATH: str = os.path.join(_ROOT, "data", "equity_matrix.npy")
 
+# Checkpoint path — saved every CHECKPOINT_EVERY matchups
+CHECKPOINT_PATH: str = os.path.join(_ROOT, "data", "equity_matrix_checkpoint.npy")
+CHECKPOINT_META: str = os.path.join(_ROOT, "data", "equity_matrix_checkpoint_meta.npy")
+CHECKPOINT_EVERY: int = 200
+
 # ---------------------------------------------------------------------------
 # Precomputed deck — 52 eval7.Card objects in RANKS x SUITS order
 # ---------------------------------------------------------------------------
@@ -181,13 +186,21 @@ def main() -> None:
     """Generate the equity matrix and save to data/equity_matrix.npy."""
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
 
-    print(f"Generating 169x169 equity matrix — N_BOARDS={N_BOARDS} per combo pair")
+    n_matchups = 169 * 168 // 2  # 14,196 upper-triangle matchups
+
+    # --- Resume from checkpoint if available ---
+    start_done = 0
+    if os.path.exists(CHECKPOINT_PATH) and os.path.exists(CHECKPOINT_META):
+        matrix = np.load(CHECKPOINT_PATH)
+        meta = np.load(CHECKPOINT_META)
+        start_done = int(meta[0])
+        print(f"Resuming from checkpoint: {start_done}/{n_matchups} matchups already done")
+    else:
+        matrix = np.full((169, 169), 0.5, dtype=np.float32)
+        print(f"Generating 169x169 equity matrix — N_BOARDS={N_BOARDS} per combo pair")
+
     print(f"Output: {OUTPUT_PATH}\n")
 
-    # Initialize matrix: diagonal = 0.5, all others filled during loop
-    matrix = np.full((169, 169), 0.5, dtype=np.float32)
-
-    n_matchups = 169 * 168 // 2  # 14,196 upper-triangle matchups
     done = 0
     t_start = time.time()
 
@@ -195,24 +208,37 @@ def main() -> None:
 
     for i in range(169):
         for j in range(i + 1, 169):
+            done += 1
+            if done <= start_done:
+                # Skip already-computed matchups (advance rng to stay consistent)
+                continue
+
             equity_ij = compute_matchup_equity(ALL_HANDS[i], ALL_HANDS[j], rng=rng)
             matrix[i][j] = float(equity_ij)
             matrix[j][i] = 1.0 - float(equity_ij)
 
-            done += 1
             if done % 100 == 0:
                 elapsed = time.time() - t_start
-                rate = done / elapsed
-                remaining_sec = (n_matchups - done) / rate
+                total_done = done
+                rate = (total_done - start_done) / elapsed if elapsed > 0 else 1
+                remaining_sec = (n_matchups - total_done) / rate
                 print(
-                    f"{done}/{n_matchups} matchups done... "
+                    f"{total_done}/{n_matchups} matchups done... "
                     f"({elapsed:.0f}s elapsed, ~{remaining_sec:.0f}s remaining)"
                 )
 
+            if done % CHECKPOINT_EVERY == 0:
+                np.save(CHECKPOINT_PATH, matrix)
+                np.save(CHECKPOINT_META, np.array([done]))
+                print(f"  [checkpoint saved at {done}]")
+
     elapsed = time.time() - t_start
 
-    # Save
+    # Save final output and clean up checkpoint
     np.save(OUTPUT_PATH, matrix)
+    for f in [CHECKPOINT_PATH, CHECKPOINT_META]:
+        if os.path.exists(f):
+            os.remove(f)
     print(f"\nSaved to {OUTPUT_PATH}")
     print(f"Shape: {matrix.shape}, dtype: {matrix.dtype}")
     print(f"Total time: {elapsed:.1f}s ({elapsed / 60:.1f} min)")
