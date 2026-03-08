@@ -42,7 +42,7 @@ import time
 from itertools import combinations
 
 import numpy as np
-import eval7
+from phevaluator import evaluate_cards  # ~60M hands/sec, lower score = better
 
 # ---------------------------------------------------------------------------
 # Bootstrap project root so `src` imports work regardless of invocation style
@@ -79,7 +79,7 @@ CHECKPOINT_PATH: str = os.path.join(_ROOT, "data", "equity_3way_checkpoint.npy")
 # (Module-level so workers inherit it via fork without re-building.)
 # ---------------------------------------------------------------------------
 
-ALL_CARDS: list[eval7.Card] = [eval7.Card(r + s) for r in RANKS for s in SUITS]
+ALL_CARDS: list[str] = [r + s for r in RANKS for s in SUITS]
 
 CARD_TO_IDX: dict[str, int] = {
     r + s: ri * 4 + si
@@ -92,32 +92,32 @@ CARD_TO_IDX: dict[str, int] = {
 # Core helpers (module-level so they can be pickled by multiprocessing)
 # ---------------------------------------------------------------------------
 
-def get_specific_combos(hand: HandInfo) -> list[tuple[eval7.Card, eval7.Card]]:
+def get_specific_combos(hand: HandInfo) -> list[tuple[str, str]]:
     """Enumerate all specific card combinations for a canonical hand.
 
     Returns:
-        List of (card1, card2) eval7.Card pairs — 6 for pairs, 4 for suited,
+        List of (card1, card2) string pairs — 6 for pairs, 4 for suited,
         12 for offsuit.
     """
     r1 = RANKS[hand.rank1]
     r2 = RANKS[hand.rank2]
 
     if hand.hand_type == "pair":
-        result: list[tuple[eval7.Card, eval7.Card]] = []
+        result: list[tuple[str, str]] = []
         for i in range(4):
             for j in range(i + 1, 4):
-                result.append((eval7.Card(r1 + SUITS[i]), eval7.Card(r1 + SUITS[j])))
+                result.append((r1 + SUITS[i], r1 + SUITS[j]))
         return result
 
     elif hand.hand_type == "suited":
-        return [(eval7.Card(r1 + s), eval7.Card(r2 + s)) for s in SUITS]
+        return [(r1 + s, r2 + s) for s in SUITS]
 
     else:  # offsuit
         result = []
         for s1 in SUITS:
             for s2 in SUITS:
                 if s1 != s2:
-                    result.append((eval7.Card(r1 + s1), eval7.Card(r2 + s2)))
+                    result.append((r1 + s1, r2 + s2))
         return result
 
 
@@ -159,16 +159,16 @@ def compute_triplet_equity(
     n_valid = 0
 
     for ci in combos_i:
-        idx_ci = {CARD_TO_IDX[str(ci[0])], CARD_TO_IDX[str(ci[1])]}
+        idx_ci = {CARD_TO_IDX[ci[0]], CARD_TO_IDX[ci[1]]}
 
         for cj in combos_j:
-            idx_cj = {CARD_TO_IDX[str(cj[0])], CARD_TO_IDX[str(cj[1])]}
+            idx_cj = {CARD_TO_IDX[cj[0]], CARD_TO_IDX[cj[1]]}
             # Skip if hand i and hand j share a card
             if idx_ci & idx_cj:
                 continue
 
             for ck in combos_k:
-                idx_ck = {CARD_TO_IDX[str(ck[0])], CARD_TO_IDX[str(ck[1])]}
+                idx_ck = {CARD_TO_IDX[ck[0]], CARD_TO_IDX[ck[1]]}
                 # Skip if hand k shares a card with hand i or hand j
                 if (idx_ci | idx_cj) & idx_ck:
                     continue
@@ -190,11 +190,11 @@ def compute_triplet_equity(
                     board_idx = rng.choice(n_rem, 5, replace=False)
                     board = [remaining[b] for b in board_idx]
 
-                    sc_i = eval7.evaluate(cards_i + board)
-                    sc_j = eval7.evaluate(cards_j + board)
-                    sc_k = eval7.evaluate(cards_k + board)
+                    sc_i = evaluate_cards(cards_i[0], cards_i[1], *board)
+                    sc_j = evaluate_cards(cards_j[0], cards_j[1], *board)
+                    sc_k = evaluate_cards(cards_k[0], cards_k[1], *board)
 
-                    best = max(sc_i, sc_j, sc_k)
+                    best = min(sc_i, sc_j, sc_k)
                     n_best = (sc_i == best) + (sc_j == best) + (sc_k == best)
                     share = 1.0 / n_best
                     if sc_i == best:
