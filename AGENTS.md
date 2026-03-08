@@ -183,22 +183,49 @@ Added four functions to `src/hands.py`. Also added `SUITS: list[str] = ['s', 'h'
 **Spec discrepancy:** The task specified `combos_with_removal("AKs", ["As", "Ks"]) == 2`, but the correct answer is 3. Both "As" and "Ks" block the SAME combo (AsKs); only 1 combo is removed, leaving 3. The spec incorrectly assumes each blocked card removes a separate combo. Implemented the correct union logic (3 is right). All other sanity checks pass.
 
 ### 1.7 — Tests for Phase 1
-- [ ] Create `tests/__init__.py` (empty)
-- [ ] Create `tests/conftest.py` with skip fixture for missing equity matrix
-- [ ] Create `tests/test_hands.py`
-- [ ] Test: 169 hands generated, total combos = 1326
-- [ ] Test: COMBO_WEIGHTS shape (169,) and sum 1326
-- [ ] Test: AA index=0, rank=1; KK index=1, rank=2
-- [ ] Test: top_n_percent(100) returns all ones, top_n_percent(0) returns all zeros
-- [ ] Test: grid round-trip for all 169 hands
-- [ ] Test: parse_range("TT+") -> [TT, JJ, QQ, KK, AA]
-- [ ] Test: parse_range("A2s+") -> 12 suited aces
-- [ ] Test: range_to_mask round-trips with mask_to_hands
-- [ ] Test: combos_with_removal("AKs", ["As"]) == 3
-- [ ] **Run `pytest tests/test_hands.py -v`** — must pass, < 5s
+- [x] Create `tests/__init__.py` (empty)
+- [x] Create `tests/conftest.py` with skip fixture for missing equity matrix
+- [x] Create `tests/test_hands.py`
+- [x] Test: 169 hands generated, total combos = 1326
+- [x] Test: COMBO_WEIGHTS shape (169,) and sum 1326
+- [x] Test: AA index=0, rank=1; KK index=1, rank=2
+- [x] Test: top_n_percent(100) returns all ones, top_n_percent(0) returns all zeros
+- [x] Test: grid round-trip for all 169 hands
+- [x] Test: parse_range("TT+") -> [TT, JJ, QQ, KK, AA]
+- [x] Test: parse_range("A2s+") -> 12 suited aces
+- [x] Test: range_to_mask round-trips with mask_to_hands
+- [x] Test: combos_with_removal("AKs", ["As"]) == 3
+- [x] **Run `pytest tests/test_hands.py -v`** — must pass, < 5s
 
 **Notes:**
-_(agent fills in after completing)_
+Created three test files:
+- `tests/__init__.py` — already existed (empty), left as-is.
+- `tests/conftest.py` — `require_equity_matrix` fixture: checks for `data/equity_matrix.npy` relative to tests dir; calls `pytest.skip()` if missing. Used as a function argument fixture (not autouse) so tests opt in explicitly.
+- `tests/test_hands.py` — 22 tests covering all spec items:
+  1. `test_hand_count` — len(ALL_HANDS) == 169
+  2. `test_combo_weights` — shape (169,), sum == 1326
+  3. `test_hand_indices` — AA=0, KK=1, AKs=13, AKo=91, 32o=168
+  4. `test_hand_ranks` — AA rank=1, KK rank=2, 72o rank=169
+  5. `test_top_n_percent_bounds` — 0→all zeros, 100→all ones
+  6. `test_top_n_percent_aa_in_top30` — AA in, 72o out of top 30%
+  7. `test_grid_roundtrip` — all 169 hands round-trip through hand_to_grid↔grid_to_hand
+  8. `test_grid_spots` — AA=(0,0), AKs=(0,1), AKo=(1,0), 22=(12,12)
+  9. `test_parse_range_pairs` — "TT+" == ["TT","JJ","QQ","KK","AA"]
+  10. `test_parse_range_suited` — "A2s+" returns 12 hands
+  11. `test_parse_range_offsuit` — "KTo+" == ["KTo","KJo","KQo"]
+  12. `test_parse_range_empty` — "" == []
+  13. `test_parse_range_random` — 169 hands
+  14. `test_parse_range_single` — "AKs" == ["AKs"]
+  15. `test_range_mask_roundtrip` — round-trips for all 169 hands
+  16. `test_range_mask_single` — ["AA"] → 1.0 at index 0, 0 elsewhere, sum=1.0
+  17. `test_hands_to_range_pct_aa` — ~0.452% (within 0.01)
+  18. `test_hands_to_range_pct_all` — all 169 → 100.0% (within 0.001)
+  19. `test_combos_with_removal_suited` — combos_with_removal("AKs", ["As"]) == 3
+  20. `test_combos_with_removal_pair` — combos_with_removal("AA", ["As"]) == 3
+  21. `test_combos_with_removal_offsuit` — combos_with_removal("AKo", ["As"]) == 9
+  22. `test_combos_with_removal_none` — combos_with_removal("AKs", []) == 4
+
+pytest output: **22 passed in 0.23s** ✓
 
 ---
 
