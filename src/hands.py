@@ -21,6 +21,7 @@ class HandInfo:
     combos: int        # number of suit combinations: 6 (pair), 4 (suited), 12 (offsuit)
     rank1: int         # higher card rank index (0=A, 12=2)
     rank2: int         # lower card rank index (0=A, 12=2)
+    rank: int = 0      # preflop strength rank: 1=AA (strongest), 169=72o (weakest)
 
 
 def _generate_hands() -> list[HandInfo]:
@@ -73,14 +74,87 @@ def _generate_hands() -> list[HandInfo]:
     return hands
 
 
+# Standard 169-hand preflop strength ranking (rank 1 = AA = strongest, rank 169 = 72o = weakest).
+# Based on equity vs random hand. Suited hands ranked above offsuit of same ranks.
+# Wheel potential raises A5s/A4s/A3s/A2s slightly above A6s in many references.
+HAND_RANK_ORDER: list[str] = [
+    # 1-10: Premium pairs and top suited broadways
+    "AA", "KK", "QQ", "AKs", "JJ", "AQs", "KQs", "AJs", "KJs", "TT",
+    # 11-20: Top offsuit broadways, suited broadway connectors
+    "AKo", "ATs", "QJs", "KTs", "QTs", "JTs", "99", "AQo", "A9s", "KQo",
+    # 21-30: High pairs, top offsuit aces, suited broadway gaps
+    "88", "AJo", "K9s", "T9s", "A8s", "KJo", "QJo", "J9s", "A7s", "ATo",
+    # 31-40: Mid suited aces, 77, suited queens/kings, broadway offsuit
+    "A6s", "KTo", "A5s", "77", "Q9s", "A4s", "T8s", "K8s", "A3s", "JTo",
+    # 41-50: Low suited aces, 66, suited connectors, offsuit aces
+    "A2s", "98s", "66", "T9o", "K7s", "Q8s", "J8s", "A9o", "T7s", "K6s",
+    # 51-60: Suited connectors, 55, offsuit broadway gaps, suited kings
+    "87s", "QTo", "55", "86s", "J9o", "A8o", "Q9o", "J7s", "K5s", "76s",
+    # 61-70: Offsuit top pairs, suited one-gappers, 44
+    "T8o", "97s", "A7o", "K4s", "T6s", "44", "96s", "A6o", "75s", "J8o",
+    # 71-80: Offsuit queens/jacks, suited mid connectors, 33
+    "Q8o", "K3s", "85s", "A5o", "J6s", "98o", "K2s", "74s", "A4o", "33",
+    # 81-90: Suited two-gappers, offsuit mid connectors, low pairs
+    "65s", "84s", "Q7s", "J5s", "A3o", "K9o", "87o", "95s", "J4s", "Q6s",
+    # 91-100: 22, offsuit broadway gaps, low suited connectors
+    "A2o", "64s", "22", "Q5s", "J3s", "T7o", "Q4s", "86o", "73s", "J2s",
+    # 101-110: Low suited hands, offsuit connectors
+    "T5s", "K8o", "Q3s", "97o", "76o", "83s", "T4s", "Q2s", "63s", "K7o",
+    # 111-120: Weak suited, offsuit two-gappers, low offsuit kings
+    "T3s", "75o", "96o", "93s", "K6o", "T2s", "85o", "52s", "65o", "K5o",
+    # 121-130: Weak suited connectors, offsuit gaps
+    "53s", "95o", "94s", "J7o", "74o", "64o", "K4o", "43s", "84o", "62s",
+    # 131-140: Weak offsuit, low suited trash
+    "T6o", "J6o", "K3o", "54s", "73o", "93o", "42s", "K2o", "J5o", "83o",
+    # 141-150: Borderline suited, weak offsuit connectors
+    "32s", "52o", "T5o", "J4o", "63o", "Q7o", "T4o", "J3o", "92s", "53o",
+    # 151-160: Weak offsuit, near-unplayable
+    "Q6o", "J2o", "43o", "T3o", "Q5o", "T2o", "42o", "Q4o", "54o", "32o",
+    # 161-169: Trash hands, 72o dead last
+    "Q3o", "82s", "Q2o", "72s", "92o", "82o", "62o", "94o", "72o",
+]
+
 # All 169 canonical hands, ordered by index 0-168
 ALL_HANDS: list[HandInfo] = _generate_hands()
 
 # Name -> HandInfo lookup
 HAND_MAP: dict[str, HandInfo] = {h.name: h for h in ALL_HANDS}
 
+# Assign preflop strength ranks from HAND_RANK_ORDER (rank 1 = strongest)
+for _rank, _name in enumerate(HAND_RANK_ORDER, start=1):
+    HAND_MAP[_name].rank = _rank
+
 # Combo weights: shape (169,), values 6/4/12 depending on hand type; sums to 1326
 COMBO_WEIGHTS: np.ndarray = np.array([h.combos for h in ALL_HANDS], dtype=np.float64)
 
 assert len(ALL_HANDS) == 169, f"Expected 169 hands, got {len(ALL_HANDS)}"
 assert COMBO_WEIGHTS.sum() == 1326, f"Expected combo sum 1326, got {COMBO_WEIGHTS.sum()}"
+assert len(HAND_RANK_ORDER) == 169, f"HAND_RANK_ORDER has {len(HAND_RANK_ORDER)} entries, expected 169"
+assert len(set(HAND_RANK_ORDER)) == 169, "HAND_RANK_ORDER contains duplicate hand names"
+assert HAND_MAP["AA"].rank == 1, "AA must have rank 1"
+assert HAND_MAP["72o"].rank == 169, "72o must have rank 169"
+
+
+def top_n_percent(pct: float) -> np.ndarray:
+    """Return (169,) mask: 1.0 for hands in the top pct% by combo-weighted strength.
+
+    Hands are ordered by preflop strength rank (rank 1=AA=strongest).
+    A hand is included if the cumulative combo count of all stronger hands
+    is strictly less than pct% of 1326 total combos.
+
+    Args:
+        pct: Percentage threshold, 0.0 to 100.0.
+             0.0 -> all zeros (no hands included).
+             100.0 -> all ones (all hands included).
+
+    Returns:
+        np.ndarray of shape (169,), dtype float64, values 0.0 or 1.0.
+    """
+    threshold = pct / 100.0
+    mask = np.zeros(169, dtype=np.float64)
+    cumulative = 0.0
+    for hand in sorted(ALL_HANDS, key=lambda h: h.rank):
+        if cumulative / 1326.0 < threshold:
+            mask[hand.index] = 1.0
+        cumulative += hand.combos
+    return mask

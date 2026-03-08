@@ -27,7 +27,7 @@ This is how context survives between sessions. Be thorough in your notes.
 
 ## Resource Constraints — CRITICAL
 
-**Machine:** 2-vCPU, 4GB RAM VPS
+**Machine:** 4-vCPU, 8GB RAM VPS
 
 ### OK to run (< 30 seconds)
 - `pytest` on unit tests that use fixtures (not real equity matrix)
@@ -98,13 +98,20 @@ Added to `src/hands.py`. Key details:
 - Spot-checked: `HAND_MAP["AA"].index==0`, `HAND_MAP["AKs"].index==13`, `HAND_MAP["AKo"].index==91`, last hand = `32o` at index 168.
 
 ### 1.3 — Hand ranking by preflop strength
-- [ ] Add `rank: int` field to HandInfo (1=AA strongest, 169=weakest)
-- [ ] Hard-code the standard 169-hand ranking order (well-known, look it up)
-- [ ] Add function: `top_n_percent(pct: float) -> np.ndarray` — returns (169,) mask where 1.0 = hand is in top N% by combo-weighted rank
-- [ ] Percentile calculation: cumulative combos / 1326
+- [x] Add `rank: int` field to HandInfo (1=AA strongest, 169=weakest)
+- [x] Hard-code the standard 169-hand ranking order (well-known, look it up)
+- [x] Add function: `top_n_percent(pct: float) -> np.ndarray` — returns (169,) mask where 1.0 = hand is in top N% by combo-weighted rank
+- [x] Percentile calculation: cumulative combos / 1326
 
 **Notes:**
-_(agent fills in after completing)_
+Added to `src/hands.py`:
+- `HandInfo.rank: int = 0` — defaulted so existing construction calls unchanged; assigned after ALL_HANDS built.
+- `HAND_RANK_ORDER: list[str]` — 169-entry constant listing all hands strongest-to-weakest (AA=1, 72o=169). Based on equity vs random hand; suited > offsuit same ranks; wheel potential (A5s, A4s, A3s, A2s) ranked above A6s.
+- After `HAND_MAP` is built, loop `enumerate(HAND_RANK_ORDER, start=1)` assigns `.rank` on each HandInfo in place.
+- Module-level asserts verify: `len(HAND_RANK_ORDER)==169`, no duplicates, `AA.rank==1`, `72o.rank==169`.
+- `top_n_percent(pct: float) -> np.ndarray` — accepts 0.0–100.0 percentage. Sorts ALL_HANDS by rank, walks in strength order, includes a hand if `cumulative_combos_before_it / 1326 < pct/100`. Returns (169,) float64 mask.
+- Sanity checks confirmed: `top_n_percent(0)` all zeros, `top_n_percent(100)` all ones, `top_n_percent(30)` gives ~30.8% (quantized by combo granularity), AA in/72o out of top-30%.
+- No Python loops over 169 at solve time — `top_n_percent` is only called at initialization (3× per solve).
 
 ### 1.4 — Grid mapping (13×13)
 - [ ] `hand_to_grid(name: str) -> tuple[int, int]` — map hand to 13×13 position
