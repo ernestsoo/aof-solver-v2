@@ -61,14 +61,20 @@ This is how context survives between sessions. Be thorough in your notes.
 ## Phase 1: Hand Representations (`src/hands.py`)
 
 ### 1.1 — Create HandInfo dataclass and constants
-- [ ] Create `src/__init__.py` (empty)
-- [ ] Create `src/hands.py`
-- [ ] Define `RANKS = ['A','K','Q','J','T','9','8','7','6','5','4','3','2']`
-- [ ] Define `RANK_INDEX = {'A': 0, 'K': 1, ..., '2': 12}` — map rank char to int
-- [ ] Create `HandInfo` dataclass: `name: str`, `index: int`, `hand_type: str` (pair/suited/offsuit), `combos: int` (6/4/12), `rank1: int`, `rank2: int`
+- [x] Create `src/__init__.py` (empty) — already existed
+- [x] Create `src/hands.py`
+- [x] Define `RANKS = ['A','K','Q','J','T','9','8','7','6','5','4','3','2']`
+- [x] Define `RANK_INDEX = {'A': 0, 'K': 1, ..., '2': 12}` — map rank char to int
+- [x] Create `HandInfo` dataclass: `name: str`, `index: int`, `hand_type: str` (pair/suited/offsuit), `combos: int` (6/4/12), `rank1: int`, `rank2: int`
 
 **Notes:**
-_(agent fills in after completing)_
+Created `src/hands.py` with:
+- `RANKS: list[str]` — 13 rank chars, A..2
+- `RANK_INDEX: dict[str, int]` — built via dict comprehension from RANKS (A=0, K=1, ..., 2=12)
+- `HandInfo` dataclass — fields: `name`, `index`, `hand_type`, `combos`, `rank1`, `rank2`
+
+`rank` field (1-169 preflop strength rank) is NOT included yet — that is added in task 1.3 per spec.
+Verified import and instantiation work correctly with python3.
 
 ### 1.2 — Generate all 169 canonical hands
 - [ ] Generate 13 pairs (AA, KK, ..., 22) — combos=6
