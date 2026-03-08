@@ -135,6 +135,74 @@ assert HAND_MAP["AA"].rank == 1, "AA must have rank 1"
 assert HAND_MAP["72o"].rank == 169, "72o must have rank 169"
 
 
+def parse_range(notation: str) -> list[str]:
+    """Parse poker range notation into a list of hand names.
+
+    Supports:
+    - Empty string → []
+    - "random" → all 169 hands in canonical order
+    - Single hand: "AKs" → ["AKs"]
+    - Pair plus: "TT+" → ["TT", "JJ", "QQ", "KK", "AA"]
+    - Suited plus: "A2s+" → ["A2s", "A3s", ..., "AKs"] (12 hands)
+    - Offsuit plus: "KTo+" → ["KTo", "KJo", "KQo"]
+    - Comma-separated: "TT+, AKs" combines all tokens
+
+    Args:
+        notation: Range string, e.g. "22+, A2s+, KTo+".
+
+    Returns:
+        List of hand name strings, deduplicated, preserving encounter order.
+    """
+    notation = notation.strip()
+    if not notation:
+        return []
+    if notation.lower() == "random":
+        return [h.name for h in ALL_HANDS]
+
+    result: list[str] = []
+    seen: set[str] = set()
+
+    for token in notation.split(","):
+        token = token.strip()
+        if not token:
+            continue
+
+        if token.endswith("+"):
+            base = token[:-1]
+            if len(base) == 2 and base[0] == base[1]:
+                # Pair plus: "TT+" → TT, JJ, QQ, KK, AA
+                r = RANK_INDEX[base[0]]
+                for i in range(r, -1, -1):
+                    name = RANKS[i] + RANKS[i]
+                    if name not in seen:
+                        result.append(name)
+                        seen.add(name)
+            elif base.endswith("s"):
+                # Suited plus: "A2s+" → A2s .. AKs
+                r1 = RANK_INDEX[base[0]]
+                r2_start = RANK_INDEX[base[1]]
+                for r2 in range(r2_start, r1, -1):
+                    name = RANKS[r1] + RANKS[r2] + "s"
+                    if name not in seen:
+                        result.append(name)
+                        seen.add(name)
+            elif base.endswith("o"):
+                # Offsuit plus: "KTo+" → KTo, KJo, KQo
+                r1 = RANK_INDEX[base[0]]
+                r2_start = RANK_INDEX[base[1]]
+                for r2 in range(r2_start, r1, -1):
+                    name = RANKS[r1] + RANKS[r2] + "o"
+                    if name not in seen:
+                        result.append(name)
+                        seen.add(name)
+        else:
+            if token not in seen:
+                result.append(token)
+                seen.add(token)
+
+    return result
+
+
 def hand_to_grid(name: str) -> tuple[int, int]:
     """Map a hand name to its (row, col) position in the 13×13 grid.
 

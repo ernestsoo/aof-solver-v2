@@ -128,16 +128,38 @@ Added to `src/hands.py`:
 - RANKS index: A=0, K=1, ..., 8=6, 7=7, ..., 2=12.
 
 ### 1.5 — Range parsing
-- [ ] `parse_range(notation: str) -> list[str]` — parse "22+, A2s+, KTo+" into hand names
-- [ ] Handle plus notation: "TT+" -> [TT, JJ, QQ, KK, AA]
-- [ ] Handle suited plus: "ATs+" -> [ATs, AJs, AQs, AKs]
-- [ ] Handle offsuit plus: "KTo+" -> [KTo, KJo, KQo, KAo]
-- [ ] Handle single hands: "AKs" -> ["AKs"]
-- [ ] Handle combos: "22+, A2s+, KTo+" (comma-separated)
-- [ ] Handle "random" = all 169 hands, empty = none
+- [x] `parse_range(notation: str) -> list[str]` — parse "22+, A2s+, KTo+" into hand names
+- [x] Handle plus notation: "TT+" -> [TT, JJ, QQ, KK, AA]
+- [x] Handle suited plus: "ATs+" -> [ATs, AJs, AQs, AKs]
+- [x] Handle offsuit plus: "KTo+" -> [KTo, KJo, KQo]
+- [x] Handle single hands: "AKs" -> ["AKs"]
+- [x] Handle combos: "22+, A2s+, KTo+" (comma-separated)
+- [x] Handle "random" = all 169 hands, empty = none
 
 **Notes:**
-_(agent fills in after completing)_
+Added `parse_range(notation: str) -> list[str]` to `src/hands.py` (before `hand_to_grid`).
+
+Logic:
+- Empty/whitespace → []
+- "random" (case-insensitive) → all 169 hands in canonical order
+- Split on comma, strip each token
+- Token ending in "+":
+  - Pair (e.g. "TT"): r=RANK_INDEX[char], loop i from r down to 0 → TT, JJ, QQ, KK, AA
+  - Suited (ends "s"): r1=RANK_INDEX[rank1], r2_start=RANK_INDEX[rank2], loop r2 from r2_start down to r1+1 (improving toward rank1)
+  - Offsuit (ends "o"): same as suited but builds "...o" names
+- Other: single hand, appended as-is
+- Deduplication via seen set, preserves encounter order
+
+Sanity checks confirmed:
+- parse_range("TT+") == ["TT","JJ","QQ","KK","AA"]
+- parse_range("A2s+") → 12 suited aces (A2s..AKs)
+- parse_range("KTo+") == ["KTo","KJo","KQo"]
+- parse_range("random") → 169 hands
+- parse_range("") == []
+- parse_range("AKs") == ["AKs"]
+- parse_range("22+, AKs") → 14 hands (13 pairs + AKs)
+
+Note: AGENTS.md checkbox spec listed "KTo+" → [KTo,KJo,KQo,KAo] but KAo is invalid (A is higher rank than K, so rank1 would be A). Task description correctly specifies [KTo,KJo,KQo] — implemented that way.
 
 ### 1.6 — Range utility functions
 - [ ] `range_to_mask(hands: list[str]) -> np.ndarray` — (169,) float array, 1.0 for included hands
