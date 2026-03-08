@@ -42,7 +42,7 @@ import time
 from itertools import combinations
 
 import numpy as np
-from phevaluator import evaluate_cards  # ~60M hands/sec, lower score = better
+from phevaluator.evaluator import Card, _evaluate_cards  # integer API avoids string parsing overhead
 
 # ---------------------------------------------------------------------------
 # Bootstrap project root so `src` imports work regardless of invocation style
@@ -89,6 +89,12 @@ CARD_TO_IDX: dict[str, int] = {
     for ri, r in enumerate(RANKS)
     for si, s in enumerate(SUITS)
 }
+
+# Integer card IDs for phevaluator's internal _evaluate_cards(*ints) API.
+# Using integer IDs instead of string-parsed cards avoids repeated string
+# parsing inside the hot Monte Carlo loop — gives ~2x speedup.
+CARD_TO_ID: dict[str, int] = {c: Card(c).id_ for c in ALL_CARDS}
+ALL_IDS: list[int] = [CARD_TO_ID[c] for c in ALL_CARDS]
 
 
 # ---------------------------------------------------------------------------
@@ -178,38 +184,35 @@ def compute_triplet_equity(
 
                 # Build the 46-card remaining deck (exclude 6 hole cards)
                 excluded = idx_ci | idx_cj | idx_ck
-                remaining = [ALL_CARDS[x] for x in range(52) if x not in excluded]
-                n_rem = len(remaining)  # always 46
+                rem_arr = np.array([ALL_IDS[x] for x in range(52) if x not in excluded])
+                n_rem = len(rem_arr)  # always 46
 
-                cards_i = list(ci)
-                cards_j = list(cj)
-                cards_k = list(ck)
+                # Integer IDs for hole cards — avoids string parsing in hot loop
+                ci0, ci1 = CARD_TO_ID[ci[0]], CARD_TO_ID[ci[1]]
+                cj0, cj1 = CARD_TO_ID[cj[0]], CARD_TO_ID[cj[1]]
+                ck0, ck1 = CARD_TO_ID[ck[0]], CARD_TO_ID[ck[1]]
 
-                eq_i = 0.0
-                eq_j = 0.0
-                eq_k = 0.0
+                # Sample all n_boards boards at once; index into rem_arr
+                all_bidx = np.stack(
+                    [rng.choice(n_rem, 5, replace=False) for _ in range(n_boards)]
+                )
+                boards_arr = rem_arr[all_bidx]  # (n_boards, 5)
 
-                for _ in range(n_boards):
-                    board_idx = rng.choice(n_rem, 5, replace=False)
-                    board = [remaining[b] for b in board_idx]
+                # Evaluate all boards with integer API — ~2x faster than string API
+                sc_i = np.array([_evaluate_cards(ci0, ci1, *row) for row in boards_arr])
+                sc_j = np.array([_evaluate_cards(cj0, cj1, *row) for row in boards_arr])
+                sc_k = np.array([_evaluate_cards(ck0, ck1, *row) for row in boards_arr])
 
-                    sc_i = evaluate_cards(cards_i[0], cards_i[1], *board)
-                    sc_j = evaluate_cards(cards_j[0], cards_j[1], *board)
-                    sc_k = evaluate_cards(cards_k[0], cards_k[1], *board)
-
-                    best = min(sc_i, sc_j, sc_k)
-                    n_best = (sc_i == best) + (sc_j == best) + (sc_k == best)
-                    share = 1.0 / n_best
-                    if sc_i == best:
-                        eq_i += share
-                    if sc_j == best:
-                        eq_j += share
-                    if sc_k == best:
-                        eq_k += share
-
-                sum_eq_i += eq_i / n_boards
-                sum_eq_j += eq_j / n_boards
-                sum_eq_k += eq_k / n_boards
+                # Vectorised win/split counting
+                best = np.minimum(np.minimum(sc_i, sc_j), sc_k)
+                n_best = (
+                    (sc_i == best).astype(np.float64)
+                    + (sc_j == best).astype(np.float64)
+                    + (sc_k == best).astype(np.float64)
+                )
+                sum_eq_i += float(np.sum((sc_i == best) / n_best)) / n_boards
+                sum_eq_j += float(np.sum((sc_j == best) / n_best)) / n_boards
+                sum_eq_k += float(np.sum((sc_k == best) / n_best)) / n_boards
                 n_valid += 1
 
     if n_valid == 0:
