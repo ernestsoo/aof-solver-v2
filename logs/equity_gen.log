@@ -1,0 +1,6 @@
+Generating 169x169 equity matrix — N_BOARDS=1000 per combo pair
+Output: /root/.openclaw/workspaces/main/aof-solver-v2/data/equity_matrix.npy
+
+100/14196 matchups done... (38s elapsed, ~5373s remaining)
+200/14196 matchups done... (123s elapsed, ~8595s remaining)
+300/14196 matchups done... (182s elapsed, ~8439s remaining)

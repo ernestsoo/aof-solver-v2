@@ -254,6 +254,11 @@ def eq3_vs_ranges_vec(
         raw = a * b
         equity = raw / (raw + (1-a)*b + a*(1-b) + 1e-10)
 
+    TODO: Replace pairwise approximation with exact lookup from the precomputed
+    3-way tensor (data/equity_3way.npy, shape 169x169x169) once it is available.
+    Load with np.load("data/equity_3way.npy") and index as tensor[h, :, :] dotted
+    against the two weighted range vectors — see scripts/generate_3way_equities.py.
+
     Args:
         matrix:        (169, 169) equity matrix.
         range1_mask:   (169,) mask for opponent 1's range.
@@ -285,6 +290,13 @@ def eq4_vs_ranges_vec(
         c = hand_vs_range_equity_vec(matrix, range3, combo_weights)  # (169,)
         raw = a * b * c
         equity = raw / (raw + (1-a)*b*c + a*(1-b)*c + a*b*(1-c) + 1e-10)
+
+    TODO: Improve using the 3-way tensor (data/equity_3way.npy) once available.
+    4-way equity can be approximated as: for each hand h, average eq3(h, op1, op2)
+    weighted by the probability of each op3 hand being dealt, i.e.:
+        eq4(h, r1, r2, r3) ≈ sum over k in r3: [w_k * eq3_tensor[h, :, :] dotted
+        against r1, r2 | opponent k] / total_weight_r3
+    This is more accurate than the pure pairwise approximation used here.
 
     Args:
         matrix:        (169, 169) equity matrix.

@@ -351,6 +351,31 @@ Created `tests/test_equity.py` with 11 tests (1 skipped if real matrix absent):
 
 pytest output: **10 passed, 1 skipped in 0.11s** ✓
 
+### 2.5 — 3-way equity tensor (run locally)
+- [!] `scripts/generate_3way_equities.py` — parallelised, 12 workers, checkpoint/resume
+- [!] Run locally on 6-core/12-thread machine (~2-4 hours)
+- [!] Upload result to VPS: data/equity_3way.npy
+- [ ] Update `eq3_vs_ranges_vec` in src/equity.py to use tensor when available
+
+**Notes:**
+Created `scripts/generate_3way_equities.py`. Key details:
+- Computes full 169×169×169 tensor: `matrix[i, j, k]` = equity of hand i in 3-way pot vs j and k
+- Only upper triangle (i < j < k) computed via MC; all 6 permutations filled from 3 equity values
+- N_BOARDS=500 per valid combo triple; N_WORKERS=12 for parallelism
+- Checkpoint every 10,000 triplets to `data/equity_3way_checkpoint.npy`; resumes on restart
+- Progress line format: "10000/786786 triplets done (1.3%) | ETA: Xh Xm"
+- Degenerate entries (any two indices equal) set to 0.5 after main computation
+- `_finalize_and_save()` fills degenerates, saves output, prints validation (sum check + AA/KK/QQ spot check)
+- Seed per triplet: `i * 28561 + j * 169 + k` (deterministic/reproducible)
+- TODO comments added to `eq3_vs_ranges_vec` and `eq4_vs_ranges_vec` in src/equity.py noting when to switch to tensor
+- Verified: `python3 -c "import scripts.generate_3way_equities"` imports cleanly
+
+**Functions created (scripts/generate_3way_equities.py):**
+- `get_specific_combos(hand: HandInfo) -> list[tuple[eval7.Card, eval7.Card]]`
+- `compute_triplet_equity(args: tuple[int,int,int,int,int]) -> tuple[int,int,int,float,float,float]`
+- `_finalize_and_save(matrix: np.ndarray, output_path: str) -> None`
+- `main() -> None`
+
 ---
 
 ## Phase 3: Nash Solver (`src/solver.py`)
