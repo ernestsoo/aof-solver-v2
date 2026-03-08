@@ -135,6 +135,52 @@ assert HAND_MAP["AA"].rank == 1, "AA must have rank 1"
 assert HAND_MAP["72o"].rank == 169, "72o must have rank 169"
 
 
+def hand_to_grid(name: str) -> tuple[int, int]:
+    """Map a hand name to its (row, col) position in the 13×13 grid.
+
+    Grid layout (row=0..12 maps A..2, same for col):
+    - Pairs on the diagonal: row == col == rank1
+    - Suited above the diagonal: row=rank1, col=rank2  (rank1 < rank2)
+    - Offsuit below the diagonal: row=rank2, col=rank1  (row > col)
+
+    Args:
+        name: Hand name, e.g. "AKs", "TT", "87o".
+
+    Returns:
+        (row, col) tuple, both in range 0-12.
+    """
+    hand = HAND_MAP[name]
+    if hand.hand_type == "suited":
+        return (hand.rank1, hand.rank2)
+    elif hand.hand_type == "offsuit":
+        return (hand.rank2, hand.rank1)
+    else:  # pair
+        return (hand.rank1, hand.rank1)
+
+
+def grid_to_hand(row: int, col: int) -> str:
+    """Map a 13×13 grid position to a hand name.
+
+    Inverse of hand_to_grid:
+    - row == col → pair (e.g. (0,0) → "AA")
+    - row < col  → suited (e.g. (0,1) → "AKs")
+    - row > col  → offsuit (e.g. (1,0) → "AKo")
+
+    Args:
+        row: Row index 0-12 (0=A, 12=2).
+        col: Column index 0-12 (0=A, 12=2).
+
+    Returns:
+        Hand name string, e.g. "AKs", "TT", "87o".
+    """
+    if row == col:
+        return RANKS[row] + RANKS[col]
+    elif row < col:
+        return RANKS[row] + RANKS[col] + "s"
+    else:
+        return RANKS[col] + RANKS[row] + "o"
+
+
 def top_n_percent(pct: float) -> np.ndarray:
     """Return (169,) mask: 1.0 for hands in the top pct% by combo-weighted strength.
 

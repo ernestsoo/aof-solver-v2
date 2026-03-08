@@ -114,13 +114,18 @@ Added to `src/hands.py`:
 - No Python loops over 169 at solve time — `top_n_percent` is only called at initialization (3× per solve).
 
 ### 1.4 — Grid mapping (13×13)
-- [ ] `hand_to_grid(name: str) -> tuple[int, int]` — map hand to 13×13 position
-- [ ] `grid_to_hand(row: int, col: int) -> str` — reverse mapping
-- [ ] Grid layout: row=rank1, col=rank2. Pairs on diagonal. Suited above diagonal (row < col). Offsuit below (row > col).
-- [ ] Verify: all 169 hands map to unique grid positions and round-trip
+- [x] `hand_to_grid(name: str) -> tuple[int, int]` — map hand to 13×13 position
+- [x] `grid_to_hand(row: int, col: int) -> str` — reverse mapping
+- [x] Grid layout: row=rank1, col=rank2. Pairs on diagonal. Suited above diagonal (row < col). Offsuit below (row > col).
+- [x] Verify: all 169 hands map to unique grid positions and round-trip
 
 **Notes:**
-_(agent fills in after completing)_
+Added to `src/hands.py`:
+- `hand_to_grid(name: str) -> tuple[int, int]`: Looks up HandInfo from HAND_MAP. Suited → (rank1, rank2); offsuit → (rank2, rank1) to place below diagonal; pair → (rank1, rank1). O(1) lookup.
+- `grid_to_hand(row: int, col: int) -> str`: row==col → pair; row<col → RANKS[row]+RANKS[col]+"s" (suited); row>col → RANKS[col]+RANKS[row]+"o" (offsuit — note col/row swap to maintain rank1<rank2 convention in name).
+- Sanity verified: 0 round-trip failures, 169 unique grid positions out of 169 hands.
+- Spot checks confirmed: AA=(0,0), AKs=(0,1), AKo=(1,0), 22=(12,12), 32s=(11,12), 32o=(12,11).
+- RANKS index: A=0, K=1, ..., 8=6, 7=7, ..., 2=12.
 
 ### 1.5 — Range parsing
 - [ ] `parse_range(notation: str) -> list[str]` — parse "22+, A2s+, KTo+" into hand names
