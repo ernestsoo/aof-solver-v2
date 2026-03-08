@@ -2,336 +2,466 @@
 
 ## IMPORTANT — Read First
 1. **Read `CLAUDE.md`** before doing anything — it has all project context
-2. **Check `PROGRESS.md`** to see what's done and find your next task
-3. **Update `PROGRESS.md`** immediately when you start and finish a task
-4. **Update this file** (AGENTS.md) with any notes, issues, or changes to the plan
-5. **One task per agent run** — pick the next unchecked task, do it, update progress, done
-6. **DO NOT commit or push** — Billy (the orchestrating agent) handles all git operations
+2. **Check this file** for your next task (find the first `[ ]` task)
+3. **Update this file** when you start `[~]`, finish `[x]`, or hit issues
+4. **One task per agent run** — do it, update status + notes below, done
+5. **DO NOT commit or push** — Billy (the orchestrating agent) handles all git operations
+
+### Progress Legend
+- `[ ]` = not started
+- `[~]` = in progress
+- `[x]` = complete
+- `[!]` = needs human testing (heavy compute)
+
+### Self-Tracking Rules (CRITICAL — READ THIS)
+After completing each task, you MUST update this file:
+1. Change the task checkbox from `[ ]` to `[x]`
+2. Add a brief note under the task with what you did and any decisions made
+3. If you created functions/classes, list their signatures so the next session has context
+4. If you deviated from the spec, explain WHY
+5. If you hit issues, document them so they're not repeated
+
+This is how context survives between sessions. Be thorough in your notes.
 
 ---
 
 ## Resource Constraints — CRITICAL
 
-This runs on a **2-vCPU, 4GB RAM VPS**. Respect these limits:
+**Machine:** 2-vCPU, 4GB RAM VPS
 
-### What you CAN run (< 30 seconds)
-- `pytest` on unit tests that don't need the equity matrix
-- Importing modules and checking they work
-- Small data structure operations (generating 169 hands, grid mappings)
+### OK to run (< 30 seconds)
+- `pytest` on unit tests that use fixtures (not real equity matrix)
+- Module imports, small data ops, hand generation
 - Tests with mocked/stubbed equity data
 
-### What you CANNOT run — mark as `[!]` (needs human testing)
-- Equity matrix generation (`scripts/generate_equities.py`) — takes 30-60 min
-- Any Monte Carlo simulation with > 1000 samples
-- Full solver convergence runs (even with precomputed equity)
-- Flask server startup + integration tests
-- Anything that loops over all 1326 × 1326 hand combinations
+### DO NOT run — mark `[!]`
+- Equity matrix generation (30-60 min)
+- Full solver convergence with real equity matrix
+- Flask server + integration tests
+- Any Monte Carlo with > 1000 samples
 
 ### Test Rules
-- Every test file must have: `pytest.mark.skipif(not EQUITY_MATRIX_EXISTS, reason="equity matrix not generated")`
-- Tests that need the equity matrix must skip gracefully, not fail
-- Write a `conftest.py` with the skip fixture so all test files share it
-- If a test takes > 5 seconds, it's too heavy — split it or mark it `[!]`
+- Tests needing real equity matrix: skip if `data/equity_matrix.npy` missing
+- Shared skip fixture in `tests/conftest.py`
+- Any test > 5 seconds is too heavy — split it or mark `[!]`
 
 ---
 
-## Lessons From v1 — DO NOT REPEAT THESE MISTAKES
+## Lessons From v1 — DO NOT REPEAT
 
-### ❌ v1 Problem: Monte Carlo equity during solve time
-The v1 solver computed equity via MC sampling on every iteration. Each best-response computation called MC equity for 1326 hands × opponent combos. Result: ~80 seconds per iteration, solver never finished.
-
-### ✅ v2 Solution: Precomputed 169×169 equity matrix
-- Generate a 169×169 canonical hand equity matrix ONCE (offline, human runs it)
-- Solver looks up equity from the matrix — O(1) per lookup
-- Hand-vs-range equity = weighted average of matrix lookups (fast numpy dot product)
-- **No MC during solve time. Ever.**
-
-### ❌ v1 Problem: Python for-loops over 1326 combos
-Best response computation iterated over every combo in Python. Slow.
-
-### ✅ v2 Solution: Work at the 169-hand level, vectorize with numpy
-- Strategies are 169-element arrays (one per canonical hand type), not 1326
-- EV computation uses numpy matrix multiplication: `ev = equity_matrix @ (opponent_range * pot_sizes)`
-- No Python for-loops in the hot path
-- Combo weighting (6/4/12) is a separate vector, applied via element-wise multiply
-
-### ❌ v1 Problem: Complex game tree object model
-v1 built a tree of node objects with recursive traversal. Over-engineered for a push/fold game.
-
-### ✅ v2 Solution: Flat scenario-based EV
-- No tree objects. Each decision point is a function that computes EV directly
-- Action sequences are enumerated as flat scenarios (CO pushes, BTN calls, etc.)
-- Each scenario: who pushed, who called, pot size, equity lookup
-- Total scenarios: ~16 terminal nodes, easily enumerable
+| v1 Problem | v2 Solution |
+|---|---|
+| Monte Carlo equity during solve (~80s/iteration) | Precomputed 169×169 matrix, O(1) lookups |
+| Python for-loops over 1326 combos | 169-hand arrays, numpy vectorization |
+| Complex game tree object model | Flat scenario-based EV functions |
+| `treys` library (slow) | `eval7` (fast C extension) |
 
 ---
 
-## Progress Tracking
+## Phase 1: Hand Representations (`src/hands.py`)
 
-All progress is tracked in `PROGRESS.md`. Check it before starting. Update it when done.
+### 1.1 — Create HandInfo dataclass and constants
+- [ ] Create `src/__init__.py` (empty)
+- [ ] Create `src/hands.py`
+- [ ] Define `RANKS = ['A','K','Q','J','T','9','8','7','6','5','4','3','2']`
+- [ ] Define `RANK_INDEX = {'A': 0, 'K': 1, ..., '2': 12}` — map rank char to int
+- [ ] Create `HandInfo` dataclass: `name: str`, `index: int`, `hand_type: str` (pair/suited/offsuit), `combos: int` (6/4/12), `rank1: int`, `rank2: int`
 
-Format in PROGRESS.md:
-- `[ ]` = not started
-- `[x]` = complete
-- `[!]` = needs human testing (heavy compute)
-- `[~]` = in progress (agent working on it)
+**Notes:**
+_(agent fills in after completing)_
 
----
+### 1.2 — Generate all 169 canonical hands
+- [ ] Generate 13 pairs (AA, KK, ..., 22) — combos=6
+- [ ] Generate 78 suited hands (AKs, AQs, ..., 32s) — combos=4
+- [ ] Generate 78 offsuit hands (AKo, AQo, ..., 32o) — combos=12
+- [ ] Store as `ALL_HANDS: list[HandInfo]` ordered by index 0-168
+- [ ] Store as `HAND_MAP: dict[str, HandInfo]` for name lookup
+- [ ] Create `COMBO_WEIGHTS: np.ndarray` shape (169,) — each entry = combo count
+- [ ] Assert: `len(ALL_HANDS) == 169` and `COMBO_WEIGHTS.sum() == 1326`
 
-## Tasks
+**Ordering:** Pairs first (AA=0, KK=1, ..., 22=12), then suited (AKs=13, AQs=14, ...), then offsuit (AKo, AQo, ...). Exact order within suited/offsuit: higher rank1 first, then higher rank2.
 
-### Phase 1: Hand Representations (`src/hands.py`)
+**Notes:**
+_(agent fills in after completing)_
 
-**1.1 — Hand constants and generation**
-- Create `src/hands.py`
-- Define `RANKS = ['A','K','Q','J','T','9','8','7','6','5','4','3','2']`
-- Generate all 169 canonical hands: 13 pairs, 78 suited, 78 offsuit
-- Each hand as a dataclass or namedtuple: `name`, `type` (pair/suited/offsuit), `combos` (6/4/12)
-- Store as `ALL_HANDS: list` (ordered by index 0-168) and `HAND_MAP: dict` (name → hand info)
-- Verify total combos = 1326
-- **Performance note:** This is the foundation. Use simple list/dict, not complex objects. The 169-hand index is used everywhere downstream.
+### 1.3 — Hand ranking by preflop strength
+- [ ] Add `rank: int` field to HandInfo (1=AA strongest, 169=weakest)
+- [ ] Hard-code the standard 169-hand ranking order (well-known, look it up)
+- [ ] Add function: `top_n_percent(pct: float) -> np.ndarray` — returns (169,) mask where 1.0 = hand is in top N% by combo-weighted rank
+- [ ] Percentile calculation: cumulative combos / 1326
 
-**1.2 — Hand ranking**
-- Add `HAND_RANKINGS` — all 169 hands ranked 1-169 by standard pre-flop strength
-- Rank 1 = AA, 2 = KK, 3 = QQ, ..., 169 = worst (use well-known standard ranking, hard-code the order)
-- Add `hand_rank(hand: str) -> int` and `hand_percentile(hand: str) -> float`
-- Percentile = cumulative combo percentage (e.g., AA = 6/1326 = 0.45%, top 5% = ~first 66 combos)
-- Add `top_n_percent(pct: float) -> list[str]` — returns hands in the top N% by combo-weighted ranking
+**Notes:**
+_(agent fills in after completing)_
 
-**1.3 — Range parsing and operations**
-- `parse_range(notation: str) -> list[str]` — parse "22+, A2s+, KTo+" into hand list
-- `expand_plus_notation(hand: str) -> list[str]` — "ATs+" → ["ATs","AJs","AQs","AKs"]
-- `range_to_hands(range_pct: float) -> list[str]` — top N% of hands by combo-weighted ranking
-- `hands_to_range_pct(hands: list[str]) -> float` — combo % of 1326 total
-- Handle edge cases: "random" = 100%, empty = 0%, single hand "AKs" = just that hand
+### 1.4 — Grid mapping (13×13)
+- [ ] `hand_to_grid(name: str) -> tuple[int, int]` — map hand to 13×13 position
+- [ ] `grid_to_hand(row: int, col: int) -> str` — reverse mapping
+- [ ] Grid layout: row=rank1, col=rank2. Pairs on diagonal. Suited above diagonal (row < col). Offsuit below (row > col).
+- [ ] Verify: all 169 hands map to unique grid positions and round-trip
 
-**1.4 — Grid mapping**
-- `hand_to_grid(hand: str) -> tuple[int, int]` — map to 13x13 grid position
-- `grid_to_hand(row: int, col: int) -> str` — reverse mapping
-- Grid layout: rows/cols by rank (A=0..2=12), suited above diagonal, offsuit below, pairs on diagonal
-- All 169 hands must map to unique positions and round-trip correctly
+**Notes:**
+_(agent fills in after completing)_
 
-**1.5 — Combo counting with removal**
-- `combo_count(hand: str) -> int` — basic: 6/4/12
-- `total_combos(hands: list[str]) -> int` — sum combos
-- `combos_with_removal(hand: str, blocked_cards: list[str]) -> int` — account for dead cards
-- `COMBO_WEIGHTS: np.ndarray` — shape (169,), each entry = combo count for that canonical hand. Used for weighted equity calculations.
-- **This array is critical for solver performance** — vectorized operations use it everywhere
+### 1.5 — Range parsing
+- [ ] `parse_range(notation: str) -> list[str]` — parse "22+, A2s+, KTo+" into hand names
+- [ ] Handle plus notation: "TT+" -> [TT, JJ, QQ, KK, AA]
+- [ ] Handle suited plus: "ATs+" -> [ATs, AJs, AQs, AKs]
+- [ ] Handle offsuit plus: "KTo+" -> [KTo, KJo, KQo, KAo]
+- [ ] Handle single hands: "AKs" -> ["AKs"]
+- [ ] Handle combos: "22+, A2s+, KTo+" (comma-separated)
+- [ ] Handle "random" = all 169 hands, empty = none
 
-**1.6 — Tests for hands.py**
-- Create `tests/test_hands.py`
-- Create `tests/conftest.py` with shared fixtures and skip markers
-- Test: 169 hands generated, total combos = 1326
-- Test: ranking order (AA=1, KK=2, etc.)
-- Test: parse_range("TT+") → ["TT","JJ","QQ","KK","AA"]
-- Test: parse_range("A2s+") → all 12 suited aces
-- Test: grid round-trip for all 169 hands
-- Test: combos_with_removal("AKs", ["As"]) = 3
-- Test: COMBO_WEIGHTS sums to 1326
-- **Run `pytest tests/test_hands.py -v`** — this is lightweight, OK to run (< 5s)
+**Notes:**
+_(agent fills in after completing)_
 
----
+### 1.6 — Range utility functions
+- [ ] `range_to_mask(hands: list[str]) -> np.ndarray` — (169,) float array, 1.0 for included hands
+- [ ] `mask_to_hands(mask: np.ndarray) -> list[str]` — reverse
+- [ ] `hands_to_range_pct(hands: list[str]) -> float` — combo % of 1326
+- [ ] `combos_with_removal(hand: str, blocked_cards: list[str]) -> int` — reduced combos when cards are dead
 
-### Phase 2: Equity Engine (`src/equity.py`)
+**Notes:**
+_(agent fills in after completing)_
 
-**2.1 — Equity matrix generator script**
-- Create `scripts/generate_equities.py`
-- Use `eval7` to compute equity for each of 169×169 canonical hand matchups
-- For each matchup: enumerate representative card combos, run Monte Carlo or exact enumeration
-- Only compute upper triangle (i < j), mirror to lower: `equity[j][i] = 1.0 - equity[i][j]`
-- Diagonal (hand vs itself): set to 0.5 (only relevant when cards don't conflict)
-- Save to `data/equity_matrix.npy` as float32 (169×169 = ~114KB)
-- Print progress every 100 matchups
-- Estimated runtime: 10-30 minutes on 2-vCPU. **DO NOT RUN.** Mark as `[!]`
-- **Key design:** This matrix is the ONLY equity source for the solver. No MC at solve time.
+### 1.7 — Tests for Phase 1
+- [ ] Create `tests/__init__.py` (empty)
+- [ ] Create `tests/conftest.py` with skip fixture for missing equity matrix
+- [ ] Create `tests/test_hands.py`
+- [ ] Test: 169 hands generated, total combos = 1326
+- [ ] Test: COMBO_WEIGHTS shape (169,) and sum 1326
+- [ ] Test: AA index=0, rank=1; KK index=1, rank=2
+- [ ] Test: top_n_percent(100) returns all ones, top_n_percent(0) returns all zeros
+- [ ] Test: grid round-trip for all 169 hands
+- [ ] Test: parse_range("TT+") -> [TT, JJ, QQ, KK, AA]
+- [ ] Test: parse_range("A2s+") -> 12 suited aces
+- [ ] Test: range_to_mask round-trips with mask_to_hands
+- [ ] Test: combos_with_removal("AKs", ["As"]) == 3
+- [ ] **Run `pytest tests/test_hands.py -v`** — must pass, < 5s
 
-**2.2 — Equity lookup module**
-- Create `src/equity.py`
-- `load_equity_matrix(path: str = "data/equity_matrix.npy") -> np.ndarray` — returns (169, 169) float32
-- `hand_vs_hand_equity(hand1: str, hand2: str, matrix: np.ndarray) -> float` — matrix[idx1][idx2]
-- `hand_vs_range_equity(hand_idx: int, range_mask: np.ndarray, combo_weights: np.ndarray, matrix: np.ndarray) -> float`
-  - **This must be vectorized:** `np.dot(matrix[hand_idx] * range_mask, combo_weights) / np.dot(range_mask, combo_weights)`
-  - `range_mask` is a (169,) boolean/float array. `combo_weights` is from hands.py.
-  - No Python for-loops. This function is called thousands of times during a solve.
-- `range_vs_range_equity(range1: np.ndarray, range2: np.ndarray, combo_weights: np.ndarray, matrix: np.ndarray) -> float`
-  - Double-weighted average, also vectorized
-- Handle missing matrix file: raise `FileNotFoundError` with message "Run scripts/generate_equities.py first"
-
-**2.3 — Tests for equity.py**
-- Create `tests/test_equity.py`
-- **All tests that need the real matrix must skip if `data/equity_matrix.npy` doesn't exist**
-- Create a `tests/fixtures/tiny_equity.npy` — a small 169×169 matrix with known values for a few hands (AA, KK, QQ, 72o) and zeros elsewhere. Tests use this fixture.
-- Test: load_equity_matrix returns (169, 169) shape
-- Test: `equity[i][j] + equity[j][i]` ≈ 1.0 (with fixture data)
-- Test: hand_vs_range_equity with single hand equals hand_vs_hand
-- Test: vectorized equity matches manual loop (correctness check on fixture)
-- **Run `pytest tests/test_equity.py -v`** — OK to run with fixture data (< 5s)
-- **DO NOT run generate_equities.py**
+**Notes:**
+_(agent fills in after completing)_
 
 ---
 
-### Phase 3: Nash Solver (`src/solver.py`)
+## Phase 2: Equity Engine (`src/equity.py`)
 
-**3.1 — EV calculation functions**
-- Create `src/solver.py`
-- All strategies represented as `np.ndarray` shape (169,) — values 0.0 to 1.0 (probability of pushing/calling)
-- `ev_push_fold(hand_idx, position, strategies, call_strategies, equity_matrix, combo_weights) -> tuple[float, float]`
-  - Returns (ev_fold, ev_push) for a hand at a position
-  - ev_fold: 0 for CO/BTN, -0.5 for SB (posted), -1.0 for BB (posted)
-  - ev_push: must account for all possible caller combinations
-- Pot math (CRITICAL — get this right):
-  - Base pot: 1.5bb (0.5 SB + 1.0 BB)
-  - Effective stacks: 10bb for all
-  - SB pushes: risks 9.5bb more (already posted 0.5)
-  - BB calls: risks 9.0bb more (already posted 1.0)
-  - When multiple players push: pot = 10bb × num_players_in + dead blinds from folders
-- **Implementation must be vectorized:** compute ev_push for all 169 hands at once using matrix ops, not a for-loop over hands
-- See CLAUDE.md for detailed EV formulas per position and scenario
+### 2.1 — Equity matrix generator script
+- [ ] Create `scripts/generate_equities.py`
+- [ ] For each of 169×169 matchups: enumerate non-conflicting card combos
+- [ ] Use `eval7` for hand evaluation with Monte Carlo (N=5000 boards per specific matchup)
+- [ ] Only compute upper triangle (i < j), mirror: `matrix[j][i] = 1.0 - matrix[i][j]`
+- [ ] Diagonal: 0.5
+- [ ] Save to `data/equity_matrix.npy`, shape (169, 169), dtype float32
+- [ ] Print progress every 100 matchups
+- [ ] Mark `[!]` — DO NOT RUN (estimated 10-30 min)
 
-**3.2 — Iterative best-response solver**
-- `solve_nash(equity_matrix, combo_weights, max_iter=500, tolerance=0.001) -> SolverResult`
-- SolverResult dataclass: `push_strategies: dict[str, np.ndarray]`, `call_strategies: dict[str, dict[str, np.ndarray]]`, `ev_table: dict`, `iterations: int`, `converged: bool`, `exploitability: float`
-- Algorithm:
-  1. Initialize: all positions push top 50% (by ranking)
-  2. For each position (CO→BTN→SB→BB): compute best response given others' current strategies
-  3. Best response: for each hand, if EV(push) > EV(fold), push probability = 1.0, else 0.0
-  4. Repeat until convergence: max strategy change < tolerance across all positions
-  5. Cap at max_iter
-- **Performance target: full solve in < 5 seconds on 2-vCPU** (with precomputed equity matrix)
-- If this target isn't met, profile and report where time goes — don't try to optimize blind
+**Notes:**
+_(agent fills in after completing)_
 
-**3.3 — All call range scenarios**
-- Each position has multiple call scenarios depending on who pushed before them:
-- **BTN:** `vs_co` (CO pushed), `open` (CO folded, BTN decides to push)
-- **SB:** `vs_co`, `vs_btn`, `vs_co_btn`, `open` (all fold to SB)
-- **BB:** `vs_co`, `vs_btn`, `vs_sb`, `vs_co_btn`, `vs_co_sb`, `vs_btn_sb`, `vs_co_btn_sb`, `check` (all fold to BB — wins pot)
-- Each scenario needs correct pot size and risk calculation
-- Store as a dict: `call_strategies[position][scenario] = np.ndarray(169,)`
+### 2.2 — Equity lookup functions
+- [ ] Create `src/equity.py`
+- [ ] `load_equity_matrix(path="data/equity_matrix.npy") -> np.ndarray` — returns (169,169) float32. Raise FileNotFoundError if missing.
+- [ ] `hand_vs_hand_equity(idx1: int, idx2: int, matrix: np.ndarray) -> float` — simple matrix lookup
+- [ ] `hand_vs_range_equity(hand_idx: int, range_mask: np.ndarray, combo_weights: np.ndarray, matrix: np.ndarray) -> float`
+  - **Vectorized:** `np.dot(matrix[hand_idx] * range_mask, combo_weights) / np.dot(range_mask, combo_weights)`
+  - No Python for-loops. Called thousands of times during solve.
 
-**3.4 — Tests for solver.py**
-- Create `tests/test_solver.py`
-- **Must skip if equity matrix not present** (use conftest fixture)
-- With fixture data (tiny matrix):
-  - Test: EV calculation returns sensible values (ev_push > ev_fold for AA)
-  - Test: ev_fold is correct per position (0, 0, -0.5, -1.0)
-  - Test: pot math is correct for each scenario
-- With real matrix (skip if missing):
-  - Test: solver converges within max_iter
-  - Test: AA always in push range for all positions
-  - Test: 72o never in push range for any position
-  - Test: CO range ⊂ BTN range ⊂ SB range (ranges widen by position)
-  - Test: exploitability < 0.1 bb
-- **DO NOT run solver tests if equity matrix missing** — they will skip automatically
-- **Run `pytest tests/test_solver.py -v`** — OK if using fixture, skip gracefully otherwise
+**Notes:**
+_(agent fills in after completing)_
+
+### 2.3 — Multiway equity approximation
+- [ ] `eq3_approx(h: int, h1: int, h2: int, matrix: np.ndarray) -> float` — 3-way equity from pairwise
+  - `p_h = matrix[h][h1] * matrix[h][h2]`, normalize with other two players
+- [ ] `eq3_vs_ranges(h_idx: int, range1: np.ndarray, range2: np.ndarray, combo_weights: np.ndarray, matrix: np.ndarray) -> float`
+  - Vectorized 3-way equity against two ranges
+- [ ] `eq4_vs_ranges(...)` — same for 4-way pots
+- [ ] See CLAUDE.md "Multiway Equity" section for exact formulas
+
+**Notes:**
+_(agent fills in after completing)_
+
+### 2.4 — Test fixture and tests for equity
+- [ ] Create `tests/fixtures/` directory
+- [ ] Create `tests/fixtures/tiny_equity.npy` — 169×169 matrix with known values for AA(idx 0), KK(idx 1), QQ(idx 2), 72o(idx ~168). Rest = 0.5.
+  - AA vs KK ~ 0.82, AA vs QQ ~ 0.82, KK vs QQ ~ 0.82
+- [ ] Create `tests/test_equity.py`
+- [ ] Test: load returns (169, 169) shape
+- [ ] Test: `matrix[i][j] + matrix[j][i]` ~ 1.0 (on fixture)
+- [ ] Test: hand_vs_range_equity with single hand == hand_vs_hand
+- [ ] Test: eq3_approx normalizes (probabilities sum to ~1)
+- [ ] **Run `pytest tests/test_equity.py -v`** — must pass with fixture, < 5s
+
+**Notes:**
+_(agent fills in after completing)_
 
 ---
 
-### Phase 4: Nodelocking (`src/nodelock.py`)
+## Phase 3: Nash Solver (`src/solver.py`)
 
-**4.1 — Nodelock solver**
-- Create `src/nodelock.py`
-- `nodelock_solve(equity_matrix, combo_weights, locked: dict[str, np.ndarray], max_iter=500) -> SolverResult`
-- `locked` dict: position → fixed push strategy array (169,). Locked positions are NOT updated during iteration.
-- Same IBR algorithm as Nash but skip locked positions
-- Accept locked ranges as: hand list, range percentage, or raw numpy array
-- Helper: `lock_from_range(range_pct: float) -> np.ndarray` — convert % to push array
-- Helper: `lock_from_hands(hands: list[str]) -> np.ndarray` — convert hand list to push array
+### 3.1 — SolverResult dataclass and strategy storage
+- [ ] Create `src/solver.py`
+- [ ] Define all 14 strategy array names (see CLAUDE.md "Decision Points Per Position"):
+  - Push (3): `push_co`, `push_btn_open`, `push_sb_open`
+  - Call (11): `call_btn_vs_co`, `call_sb_vs_co`, `call_sb_vs_btn`, `call_sb_vs_co_btn`, `call_bb_vs_sb`, `call_bb_vs_btn`, `call_bb_vs_co`, `call_bb_vs_btn_sb`, `call_bb_vs_co_sb`, `call_bb_vs_co_btn`, `call_bb_vs_co_btn_sb`
+- [ ] `SolverResult` dataclass with: strategies dict, ev_table, iterations, converged, exploitability
+- [ ] `initial_strategies(combo_weights) -> dict` — init all 14 arrays. Push = top 30-50% depending on position. Call = top 20%.
 
-**4.2 — Exploitability metric**
-- `exploitability(push_strategies, call_strategies, equity_matrix, combo_weights) -> float`
-- Returns total exploitability in bb (sum of max(ev_best_response - ev_current) across all positions)
-- For Nash solution, should be ≈ 0
-- For nodelocked solution, measures how far locked player deviates from equilibrium
+**Notes:**
+_(agent fills in after completing)_
 
-**4.3 — Tests for nodelock.py**
-- Create `tests/test_nodelock.py`
-- **Must skip if equity matrix not present**
-- With real matrix (skip if missing):
-  - Test: locking all to Nash returns Nash result (no change)
-  - Test: locking one position wider → opponents call tighter
-  - Test: locking one position tighter → opponents push wider
-  - Test: exploitability(nash_result) ≈ 0
-  - Test: exploitability(nodelocked_result) > 0 when lock deviates from Nash
-- **Mark all as `[!]`** — needs human testing with real equity matrix
+### 3.2 — Fold probability helpers
+- [ ] `fold_prob(strategy: np.ndarray, combo_weights: np.ndarray) -> float` — probability a random hand folds
+  - `= np.dot(1 - strategy, combo_weights) / combo_weights.sum()`
+- [ ] `call_prob(strategy, combo_weights) -> float` — 1 - fold_prob
+- [ ] These are scalars used in every EV computation (branch probabilities in game tree)
+
+**Notes:**
+_(agent fills in after completing)_
+
+### 3.3 — EV computation: CO open push
+- [ ] `ev_push_co(equity_matrix, combo_weights, strategies) -> np.ndarray` — returns (169,) EV for each hand
+- [ ] Implement all 8 terminal scenarios for CO push (Terminals 8-15 in CLAUDE.md)
+- [ ] Each scenario: probability x (equity x pot - risk)
+- [ ] **Must be fully vectorized** — one (169,) result array, no loops over hands
+- [ ] EV(fold) for CO = 0.0
+
+**Notes:**
+_(agent fills in after completing)_
+
+### 3.4 — EV computation: BTN decisions
+- [ ] `ev_push_btn_open(...)` — BTN open push when CO folded (Terminals 4-7)
+- [ ] `ev_call_btn_vs_co(...)` — BTN call when CO pushed (Terminals 12-15)
+- [ ] Both return (169,) arrays, fully vectorized
+- [ ] EV(fold) for BTN = 0.0
+
+**Notes:**
+_(agent fills in after completing)_
+
+### 3.5 — EV computation: SB decisions
+- [ ] `ev_push_sb_open(...)` — SB open push when CO+BTN folded (Terminals 2-3)
+- [ ] `ev_call_sb_vs_co(...)` — SB call when CO pushed, BTN folded (Terminals 10-11)
+- [ ] `ev_call_sb_vs_btn(...)` — SB call when BTN pushed, CO folded (Terminals 6-7)
+- [ ] `ev_call_sb_vs_co_btn(...)` — SB call when CO pushed + BTN called (Terminals 14-15)
+- [ ] All return (169,) arrays, vectorized
+- [ ] EV(fold) for SB = -0.5
+
+**Notes:**
+_(agent fills in after completing)_
+
+### 3.6 — EV computation: BB decisions
+- [ ] `ev_call_bb_vs_sb(...)` — Terminal 3
+- [ ] `ev_call_bb_vs_btn(...)` — Terminal 5
+- [ ] `ev_call_bb_vs_co(...)` — Terminal 9
+- [ ] `ev_call_bb_vs_btn_sb(...)` — Terminal 7
+- [ ] `ev_call_bb_vs_co_sb(...)` — Terminal 11
+- [ ] `ev_call_bb_vs_co_btn(...)` — Terminal 13
+- [ ] `ev_call_bb_vs_co_btn_sb(...)` — Terminal 15
+- [ ] All return (169,) arrays, vectorized
+- [ ] EV(fold) for BB = -1.0
+
+**Notes:**
+_(agent fills in after completing)_
+
+### 3.7 — Best response function
+- [ ] `best_response(ev_action: np.ndarray, ev_fold: float) -> np.ndarray`
+  - Returns (169,) array: 1.0 where ev_action > ev_fold, else 0.0
+- [ ] Optional damping: `new = alpha * best + (1-alpha) * old` where alpha=0.9
+  - Prevents oscillation on borderline hands
+
+**Notes:**
+_(agent fills in after completing)_
+
+### 3.8 — IBR solve loop
+- [ ] `solve_nash(equity_matrix, combo_weights, max_iter=500, tolerance=0.001) -> SolverResult`
+- [ ] Initialize strategies via `initial_strategies()`
+- [ ] Each iteration: compute best response for CO -> BTN -> SB -> BB
+  - CO: compute ev_push_co, update push_co
+  - BTN: compute ev_push_btn_open + ev_call_btn_vs_co, update both
+  - SB: compute all 4 SB EVs, update all 4 SB strategies
+  - BB: compute all 7 BB EVs, update all 7 BB strategies
+- [ ] Convergence: `max(|new - old|)` across all 14 strategy arrays < tolerance
+- [ ] Return SolverResult with final strategies, iterations, converged flag
+
+**Notes:**
+_(agent fills in after completing)_
+
+### 3.9 — Exploitability calculation
+- [ ] `compute_exploitability(strategies, equity_matrix, combo_weights) -> float`
+- [ ] For each position: compute EV of best response vs current opponents, compare to current strategy EV
+- [ ] Sum of differences = total exploitability in bb
+- [ ] Nash solution should have exploitability ~ 0
+
+**Notes:**
+_(agent fills in after completing)_
+
+### 3.10 — Tests for solver
+- [ ] Create `tests/test_solver.py`
+- [ ] Test: SolverResult created with correct structure
+- [ ] Test: initial_strategies returns 14 arrays all shape (169,)
+- [ ] Test: fold_prob/call_prob sum to 1.0
+- [ ] Test: ev_fold values correct per position (0, 0, -0.5, -1.0)
+- [ ] Test: best_response returns binary array
+- [ ] Test with fixture: ev_push_co gives higher EV for AA than 72o
+- [ ] Test with real matrix `[!]`: solver converges, AA always pushed, 72o never pushed, exploitability < 0.1bb
+- [ ] **Run `pytest tests/test_solver.py -v`** — fixture tests must pass, real-matrix tests skip
+
+**Notes:**
+_(agent fills in after completing)_
 
 ---
 
-### Phase 5: Dashboard — Backend (`src/dashboard.py`)
+## Phase 4: Nodelocking (`src/nodelock.py`)
 
-**5.1 — Flask app and solve endpoint**
-- Create `src/dashboard.py`
-- Flask app with `/api/solve` GET endpoint
-- Load equity matrix at startup. If missing, return 503 with message.
-- Precompute Nash solution at startup (cache in memory)
-- Return JSON: push_strategies, call_strategies, ev_table per position
-- All arrays serialized as: `{hand_name: probability}` dict (not raw numpy)
+### 4.1 — Nodelock solver
+- [ ] Create `src/nodelock.py`
+- [ ] `nodelock_solve(equity_matrix, combo_weights, locked: dict, max_iter=500) -> SolverResult`
+  - `locked`: `{"CO": np.ndarray(169,), "BTN_open": np.ndarray(169,)}` — fixed strategies
+  - Same IBR as Nash but skip locked positions during iteration
+- [ ] `lock_from_range_pct(pct: float, combo_weights: np.ndarray) -> np.ndarray` — top N% as mask
+- [ ] `lock_from_hands(hands: list[str]) -> np.ndarray` — hand list to mask
 
-**5.2 — Nodelock endpoint**
-- `/api/nodelock` POST endpoint
-- Body: `{"locks": {"BTN": 45, "CO": "22+,A2s+"}}` — accepts % (float) or range notation (string)
-- Parse locks, run nodelock_solve, return result JSON
-- Include both Nash and nodelocked results for comparison
+**Notes:**
+_(agent fills in after completing)_
 
-**5.3 — Utility endpoints**
-- `/api/hand_equity?hand=AKs&vs=top30` — equity lookup against a range
-- `/api/hand_info?hand=AKs` — rank, percentile, combos, type
-- `/api/range?notation=22%2B,A2s%2B` — expand notation to hand list
-- **Mark all dashboard tasks as `[!]`** — needs human testing (Flask startup + equity matrix)
+### 4.2 — Exploitability for nodelock
+- [ ] Reuse `compute_exploitability()` from solver.py
+- [ ] `compare_vs_nash(nash_result, nodelock_result) -> dict` — EV difference per position
+
+**Notes:**
+_(agent fills in after completing)_
+
+### 4.3 — Tests for nodelock `[!]`
+- [ ] Create `tests/test_nodelock.py`
+- [ ] Test with real matrix: locking all to Nash = no change
+- [ ] Test: locking wider -> opponents call tighter
+- [ ] Test: exploitability(nash) ~ 0, exploitability(nodelock) > 0 if lock deviates
+- [ ] All skip if equity matrix missing
+
+**Notes:**
+_(agent fills in after completing)_
 
 ---
 
-### Phase 6: Dashboard — Frontend (`templates/index.html`)
+## Phase 5: Dashboard Backend (`src/dashboard.py`)
 
-**6.1 — Page layout and Nash grids**
-- Create `templates/index.html`
-- Dark theme, single page, vanilla JS (no build tools)
-- Top section: 4 hand grids side by side (CO/BTN/SB/BB)
-- Each grid 13×13 showing push range
-- Color: green = push, red = fold, intensity by EV magnitude
-- Below each grid: "Push X% (Y combos)" summary
-- Fetch from `/api/solve` on page load
+### 5.1 — Flask app skeleton
+- [ ] Create `src/dashboard.py`
+- [ ] Flask app, load equity matrix at startup
+- [ ] If matrix missing: all endpoints return 503
+- [ ] CORS headers for local development
+- [ ] `if __name__ == '__main__': app.run(host='0.0.0.0', port=5000, debug=True)`
 
-**6.2 — Call range viewer**
-- Middle section: dropdown to select position and scenario
-- Shows call range as 13×13 grid
-- Populate scenarios from solve result
-- Hover tooltip: hand name, EV(call), EV(fold), equity vs pusher range
+**Notes:**
+_(agent fills in after completing)_
 
-**6.3 — Nodelock panel**
-- Bottom section: 4 columns (CO/BTN/SB/BB)
-- Each: range slider (0-100%), text input for notation, lock checkbox
-- "Solve Exploitative" button → POST to `/api/nodelock`
-- Show results as updated grids replacing the Nash grids
-- Show EV difference per position (how much locked player is losing)
+### 5.2 — Solve endpoint
+- [ ] `/api/solve` GET — precompute Nash at startup, cache in memory
+- [ ] Return JSON: `{position: {hand_name: push_probability}}` for each position + scenario
+- [ ] Include EV table and metadata (iterations, exploitability)
 
-**6.4 — Range comparison view**
-- Toggle: Nash vs exploitative side-by-side
-- Difference highlighting: green border = added to range vs Nash, red border = removed
-- EV change summary per position in bb
+**Notes:**
+_(agent fills in after completing)_
 
-**6.5 — Hover tooltips and polish**
-- Hover on any grid cell: hand name, type, combos, EV(push), EV(fold), equity
-- Grid cell styling: monospace, ~30px cells, clear borders
-- Loading spinner during solve/nodelock
-- Error states (matrix missing, solve failed)
-- **All Phase 6 tasks are `[!]`** — needs human testing with running Flask server
+### 5.3 — Nodelock endpoint
+- [ ] `/api/nodelock` POST
+- [ ] Body: `{"locks": {"CO": 45, "BTN_open": "22+,A2s+"}}` — accepts % or notation
+- [ ] Return nodelock result + Nash comparison
+
+**Notes:**
+_(agent fills in after completing)_
+
+### 5.4 — Utility endpoints
+- [ ] `/api/hand_equity?hand=AKs&vs=top30` — equity lookup
+- [ ] `/api/hand_info?hand=AKs` — rank, percentile, combos
+- [ ] `/api/range?notation=22+,A2s+` — expand to hand list
+
+**Notes:**
+_(agent fills in after completing)_
+
+### 5.5 — Dashboard tests `[!]`
+- [ ] All need Flask running + equity matrix — mark `[!]`
+
+**Notes:**
+_(agent fills in after completing)_
+
+---
+
+## Phase 6: Dashboard Frontend (`templates/index.html`)
+
+### 6.1 — Page layout and grid renderer
+- [ ] Create `templates/index.html`
+- [ ] Dark theme, single page, vanilla JS
+- [ ] `renderGrid(containerId, strategyData)` — draw 13x13 grid with color coding
+- [ ] Green = push/call, red = fold, intensity by probability
+- [ ] CSS grid: ~30px cells, monospace font, clear borders
+
+**Notes:**
+_(agent fills in after completing)_
+
+### 6.2 — Nash push range display
+- [ ] Fetch `/api/solve` on page load
+- [ ] Display 4 grids side by side: CO / BTN open / SB open / BB (uncontested label)
+- [ ] Below each: "Push X% (Y combos)" summary line
+- [ ] Loading spinner while fetching
+
+**Notes:**
+_(agent fills in after completing)_
+
+### 6.3 — Call range viewer
+- [ ] Dropdown: select position + scenario (e.g., "BTN vs CO push")
+- [ ] Show selected call range as 13x13 grid
+- [ ] Dynamic: changes grid on dropdown selection
+
+**Notes:**
+_(agent fills in after completing)_
+
+### 6.4 — Nodelock controls
+- [ ] 4 columns (CO/BTN/SB/BB): range slider (0-100%) + text input for notation + lock checkbox
+- [ ] "Solve Exploitative" button -> POST `/api/nodelock`
+- [ ] Display results replacing Nash grids
+
+**Notes:**
+_(agent fills in after completing)_
+
+### 6.5 — Nash vs exploitative comparison
+- [ ] Toggle: side-by-side view
+- [ ] Highlight differences: green border = added, red = removed vs Nash
+- [ ] EV change summary per position
+
+**Notes:**
+_(agent fills in after completing)_
+
+### 6.6 — Tooltips and polish
+- [ ] Hover on grid cell: hand name, EV(push), EV(fold), equity, combos
+- [ ] Error states: matrix missing, solve failed
+- [ ] Mobile-friendly layout (grid wraps to 2x2 on narrow screens)
+- [ ] **All Phase 6 tasks `[!]`** — need running Flask server
+
+**Notes:**
+_(agent fills in after completing)_
 
 ---
 
 ## Task Dependency Map
 
 ```
-1.1 → 1.2 → 1.3 → 1.4 → 1.5 → 1.6
-                                  ↓
-                          2.1 → 2.2 → 2.3
-                                        ↓
-                                3.1 → 3.2 → 3.3 → 3.4
-                                                    ↓
-                                            4.1 → 4.2 → 4.3
-                                                          ↓
-                                                  5.1 → 5.2 → 5.3
-                                                                ↓
-                                                  6.1 → 6.2 → 6.3 → 6.4 → 6.5
+Phase 1 (sequential):
+  1.1 -> 1.2 -> 1.3 -> 1.4 -> 1.5 -> 1.6 -> 1.7
+
+Phase 2 (needs Phase 1):
+  2.1 -> 2.2 -> 2.3 -> 2.4
+
+Phase 3 (needs Phase 2):
+  3.1 -> 3.2 -> 3.3 -> 3.4 -> 3.5 -> 3.6 -> 3.7 -> 3.8 -> 3.9 -> 3.10
+
+Phase 4 (needs Phase 3):
+  4.1 -> 4.2 -> 4.3
+
+Phase 5 (needs Phase 4):
+  5.1 -> 5.2 -> 5.3 -> 5.4 -> 5.5
+
+Phase 6 (needs Phase 5):
+  6.1 -> 6.2 -> 6.3 -> 6.4 -> 6.5 -> 6.6
 ```
 
 ---
@@ -339,35 +469,31 @@ Format in PROGRESS.md:
 ## Agent Instructions
 
 ### Before you start
-1. Read `CLAUDE.md` for full project context
-2. Read `PROGRESS.md` to find your next task
-3. Read source files from completed tasks to understand existing interfaces
+1. Read `CLAUDE.md` for full project context and EV formulas
+2. Find your next task in this file (first `[ ]`)
+3. Read source files from completed tasks to understand interfaces
 
 ### When working
-- Do ONE task per agent run
-- Write clean code with type hints
-- Follow patterns from previous tasks
-- Don't over-engineer — keep it simple
-- **Use numpy arrays (169,) for all strategies and weights — never loop over 1326 combos in Python**
+- Do ONE task per agent run (some tasks have multiple checkboxes — do them all)
+- Write clean code with type hints and docstrings
+- Follow patterns from existing code
+- **numpy arrays (169,) for all strategies — no loops over 1326 combos**
 
-### When done
-- Update `PROGRESS.md`: mark your task `[x]` or `[!]` (needs human testing)
-- Add any notes about decisions, issues, or gotchas to PROGRESS.md Notes section
-- If you had to deviate from the spec, explain WHY
-- **DO NOT commit or push** — Billy handles all git operations
+### When done — SELF-TRACKING CHECKLIST
+- [ ] Changed task checkbox(es) from `[ ]` to `[x]` (or `[!]`)
+- [ ] Added notes under the task: what you did, functions created, decisions made
+- [ ] If you deviated from spec, explained why in notes
+- [ ] If you found issues/gotchas, documented them in notes
+- [ ] Listed function signatures you created (for next session's context)
 
-### Performance checklist (ask yourself before finishing)
-- [ ] Did I use numpy vectorization instead of Python for-loops for any computation over 169+ elements?
-- [ ] Did I avoid any Monte Carlo or random sampling in code that runs during solve time?
-- [ ] Did I use the precomputed equity matrix for all equity lookups?
-- [ ] Would this code complete in < 5 seconds for a full solve on a 2-vCPU machine?
-- [ ] Did I mark heavy-compute tasks as `[!]` in PROGRESS.md?
+### Performance checklist
+- [ ] numpy vectorization, not Python for-loops over 169+ elements?
+- [ ] No Monte Carlo at solve time?
+- [ ] Precomputed equity matrix for all equity lookups?
+- [ ] Would complete in < 5s for full solve on 2-vCPU?
 
 ### Code style
-- Python 3.11+
-- Type hints on all public functions
-- Docstrings on public functions (one-liner is fine)
-- Prefer functions and dataclasses over classes
+- Python 3.11+, type hints, docstrings on public functions
+- Prefer functions + dataclasses over classes
 - Constants at module top
-- Imports: stdlib → third-party → local (separated by blank line)
-- numpy arrays for any numeric computation over hands/ranges
+- Imports: stdlib -> third-party -> local
