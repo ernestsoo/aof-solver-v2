@@ -527,41 +527,77 @@ Tests added: TestEvPushSbOpen (6), TestEvCallSbVsCo (6), TestEvCallSbVsBtn (5), 
 Total solver tests: 58 passed in 0.37s.
 
 ### 3.6 — EV computation: BB decisions
-- [ ] `ev_call_bb_vs_sb(...)` — Terminal 3
-- [ ] `ev_call_bb_vs_btn(...)` — Terminal 5
-- [ ] `ev_call_bb_vs_co(...)` — Terminal 9
-- [ ] `ev_call_bb_vs_btn_sb(...)` — Terminal 7
-- [ ] `ev_call_bb_vs_co_sb(...)` — Terminal 11
-- [ ] `ev_call_bb_vs_co_btn(...)` — Terminal 13
-- [ ] `ev_call_bb_vs_co_btn_sb(...)` — Terminal 15
-- [ ] All return (169,) arrays, vectorized
-- [ ] EV(fold) for BB = -1.0
+- [x] `ev_call_bb_vs_sb(...)` — Terminal 3
+- [x] `ev_call_bb_vs_btn(...)` — Terminal 5
+- [x] `ev_call_bb_vs_co(...)` — Terminal 9
+- [x] `ev_call_bb_vs_btn_sb(...)` — Terminal 7
+- [x] `ev_call_bb_vs_co_sb(...)` — Terminal 11
+- [x] `ev_call_bb_vs_co_btn(...)` — Terminal 13
+- [x] `ev_call_bb_vs_co_btn_sb(...)` — Terminal 15
+- [x] All return (169,) arrays, vectorized
+- [x] EV(fold) for BB = -1.0
 
 **Notes:**
-_(agent fills in after completing)_
+Added 7 BB EV functions to `src/solver.py`. All follow the same pattern as SB functions.
+
+The 3 heads-up cases (vs_sb, vs_btn, vs_co) are trivially one-liners:
+  `eq_vs_X * pot - 10.0` where pot is 20.0 (vs SB, no dead), 20.5 (vs BTN or CO, SB dead).
+
+The 3 three-way cases (vs_btn_sb, vs_co_sb, vs_co_btn) call `eq3_vs_ranges_vec` with the two
+aggressor ranges; pots are 30.0 (no SB dead), 30.0 (BTN dead), 30.5 (SB dead).
+
+The 4-way case (vs_co_btn_sb) calls `eq4_vs_ranges_vec` with push_co, call_btn_vs_co,
+call_sb_vs_co_btn; pot = 40.0.
+
+**Strategies used by each function:**
+- `ev_call_bb_vs_sb`:         push_sb_open
+- `ev_call_bb_vs_btn`:        push_btn_open
+- `ev_call_bb_vs_co`:         push_co
+- `ev_call_bb_vs_btn_sb`:     push_btn_open, call_sb_vs_btn
+- `ev_call_bb_vs_co_sb`:      push_co, call_sb_vs_co
+- `ev_call_bb_vs_co_btn`:     push_co, call_btn_vs_co
+- `ev_call_bb_vs_co_btn_sb`:  push_co, call_btn_vs_co, call_sb_vs_co_btn
 
 ### 3.7 — Best response function
-- [ ] `best_response(ev_action: np.ndarray, ev_fold: float) -> np.ndarray`
+- [x] `best_response(ev_action: np.ndarray, ev_fold: float, old_strategy: np.ndarray, alpha: float = 0.9) -> np.ndarray`
   - Returns (169,) array: 1.0 where ev_action > ev_fold, else 0.0
-- [ ] Optional damping: `new = alpha * best + (1-alpha) * old` where alpha=0.9
+- [x] Damping implemented: `new = alpha * pure_best + (1-alpha) * old`
   - Prevents oscillation on borderline hands
 
 **Notes:**
-_(agent fills in after completing)_
+Added `best_response` to `src/solver.py`. Signature:
+  `best_response(ev_action, ev_fold, old_strategy, alpha=0.9) -> np.ndarray`
+
+Logic:
+  `pure_best = (ev_action > ev_fold).astype(np.float64)`
+  `return alpha * pure_best + (1.0 - alpha) * old_strategy`
+
+Boundary: EV exactly equal to ev_fold → folds (strict `>` comparison).
 
 ### 3.8 — IBR solve loop
-- [ ] `solve_nash(equity_matrix, combo_weights, max_iter=500, tolerance=0.001) -> SolverResult`
-- [ ] Initialize strategies via `initial_strategies()`
-- [ ] Each iteration: compute best response for CO -> BTN -> SB -> BB
+- [x] `solve_nash(equity_matrix, combo_weights, max_iter=500, tolerance=0.001) -> SolverResult`
+- [x] Initialize strategies via `initial_strategies()`
+- [x] Each iteration: compute best response for CO -> BTN -> SB -> BB
   - CO: compute ev_push_co, update push_co
   - BTN: compute ev_push_btn_open + ev_call_btn_vs_co, update both
   - SB: compute all 4 SB EVs, update all 4 SB strategies
   - BB: compute all 7 BB EVs, update all 7 BB strategies
-- [ ] Convergence: `max(|new - old|)` across all 14 strategy arrays < tolerance
-- [ ] Return SolverResult with final strategies, iterations, converged flag
+- [x] Convergence: `max(|new - old|)` across all 14 strategy arrays < tolerance
+- [x] Return SolverResult with final strategies, ev_table, iterations, converged flag, exploitability=0.0
 
 **Notes:**
-_(agent fills in after completing)_
+Added `solve_nash` to `src/solver.py`. Key details:
+- Uses `initial_strategies(combo_weights)` to set up starting point
+- Each iteration saves `old = {k: v.copy()}` before updating, then checks max delta after all 14 updates
+- Updates in strict CO → BTN (open+call) → SB (open+3 calls) → BB (7 calls) order
+- `best_response(ev, ev_fold, old[key], alpha=0.9)` used for all updates (0.9 damping)
+- Convergence: `max(np.max(np.abs(strategies[k] - old[k])) for k in STRATEGY_NAMES) < tolerance`
+- ev_table built by recomputing all 14 EV arrays from final strategies (outside the loop)
+- exploitability=0.0 placeholder (task 3.9)
+
+**Convergence with tiny_matrix:** converges or hits max_iter=50 in tests. With real equity matrix expected to converge in 20-100 iterations with alpha=0.9.
+
+**Tests:** 110 solver tests pass in 0.69s (added 52 new tests for tasks 3.6, 3.7, 3.8).
 
 ### 3.9 — Exploitability calculation
 - [ ] `compute_exploitability(strategies, equity_matrix, combo_weights) -> float`

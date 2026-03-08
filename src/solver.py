@@ -531,3 +531,374 @@ def ev_call_sb_vs_co_btn(
     EV += c_bb_co_btn_sb * (eq4_co_btn_bb * 40.0 - 10.0)
 
     return EV
+
+
+# ---------------------------------------------------------------------------
+# EV computation — BB call decisions (all 7)
+# ---------------------------------------------------------------------------
+
+
+def ev_call_bb_vs_sb(
+    equity_matrix: np.ndarray,
+    combo_weights: np.ndarray,
+    strategies: dict[str, np.ndarray],
+) -> np.ndarray:
+    """Return the (169,) EV array for BB calling SB's push. EV(fold) = -1.0.
+
+    Terminal 3: SB vs BB heads-up, pot = 20.0bb (no dead money).
+    Fully vectorized — no Python loops over hands.
+
+    Args:
+        equity_matrix: (169, 169) float32 precomputed equity matrix.
+        combo_weights: (169,) float64 combo count weights (sum = 1326).
+        strategies:    Dict with all 14 strategy arrays. Must contain: push_sb_open.
+
+    Returns:
+        (169,) float64 EV of BB calling each hand (bb, net from start).
+        EV(fold) for BB = -1.0; call is correct when EV > -1.0.
+    """
+    eq_vs_sb = hand_vs_range_equity_vec(equity_matrix, strategies["push_sb_open"], combo_weights)
+    return eq_vs_sb * 20.0 - 10.0
+
+
+def ev_call_bb_vs_btn(
+    equity_matrix: np.ndarray,
+    combo_weights: np.ndarray,
+    strategies: dict[str, np.ndarray],
+) -> np.ndarray:
+    """Return the (169,) EV array for BB calling BTN's open push. EV(fold) = -1.0.
+
+    Terminal 5: BTN vs BB heads-up, pot = 20.5bb (SB 0.5 dead).
+    Fully vectorized — no Python loops over hands.
+
+    Args:
+        equity_matrix: (169, 169) float32 precomputed equity matrix.
+        combo_weights: (169,) float64 combo count weights (sum = 1326).
+        strategies:    Dict with all 14 strategy arrays. Must contain: push_btn_open.
+
+    Returns:
+        (169,) float64 EV of BB calling each hand (bb, net from start).
+        EV(fold) for BB = -1.0; call is correct when EV > -1.0.
+    """
+    eq_vs_btn = hand_vs_range_equity_vec(equity_matrix, strategies["push_btn_open"], combo_weights)
+    return eq_vs_btn * 20.5 - 10.0
+
+
+def ev_call_bb_vs_co(
+    equity_matrix: np.ndarray,
+    combo_weights: np.ndarray,
+    strategies: dict[str, np.ndarray],
+) -> np.ndarray:
+    """Return the (169,) EV array for BB calling CO's push. EV(fold) = -1.0.
+
+    Terminal 9: CO vs BB heads-up, pot = 20.5bb (SB 0.5 dead, BTN folded).
+    Fully vectorized — no Python loops over hands.
+
+    Args:
+        equity_matrix: (169, 169) float32 precomputed equity matrix.
+        combo_weights: (169,) float64 combo count weights (sum = 1326).
+        strategies:    Dict with all 14 strategy arrays. Must contain: push_co.
+
+    Returns:
+        (169,) float64 EV of BB calling each hand (bb, net from start).
+        EV(fold) for BB = -1.0; call is correct when EV > -1.0.
+    """
+    eq_vs_co = hand_vs_range_equity_vec(equity_matrix, strategies["push_co"], combo_weights)
+    return eq_vs_co * 20.5 - 10.0
+
+
+def ev_call_bb_vs_btn_sb(
+    equity_matrix: np.ndarray,
+    combo_weights: np.ndarray,
+    strategies: dict[str, np.ndarray],
+) -> np.ndarray:
+    """Return the (169,) EV array for BB calling when BTN pushed and SB called. EV(fold) = -1.0.
+
+    Terminal 7: BTN vs SB vs BB 3-way, pot = 30.0bb (CO folded, no dead money).
+    Fully vectorized — no Python loops over hands.
+
+    Args:
+        equity_matrix: (169, 169) float32 precomputed equity matrix.
+        combo_weights: (169,) float64 combo count weights (sum = 1326).
+        strategies:    Dict with all 14 strategy arrays. Must contain:
+                       push_btn_open, call_sb_vs_btn.
+
+    Returns:
+        (169,) float64 EV of BB calling each hand (bb, net from start).
+        EV(fold) for BB = -1.0; call is correct when EV > -1.0.
+    """
+    eq3_btn_sb = eq3_vs_ranges_vec(
+        equity_matrix,
+        strategies["push_btn_open"],
+        strategies["call_sb_vs_btn"],
+        combo_weights,
+    )
+    return eq3_btn_sb * 30.0 - 10.0
+
+
+def ev_call_bb_vs_co_sb(
+    equity_matrix: np.ndarray,
+    combo_weights: np.ndarray,
+    strategies: dict[str, np.ndarray],
+) -> np.ndarray:
+    """Return the (169,) EV array for BB calling when CO pushed and SB called. EV(fold) = -1.0.
+
+    Terminal 11: CO vs SB vs BB 3-way, pot = 30.0bb (BTN folded, no dead money).
+    Fully vectorized — no Python loops over hands.
+
+    Args:
+        equity_matrix: (169, 169) float32 precomputed equity matrix.
+        combo_weights: (169,) float64 combo count weights (sum = 1326).
+        strategies:    Dict with all 14 strategy arrays. Must contain:
+                       push_co, call_sb_vs_co.
+
+    Returns:
+        (169,) float64 EV of BB calling each hand (bb, net from start).
+        EV(fold) for BB = -1.0; call is correct when EV > -1.0.
+    """
+    eq3_co_sb = eq3_vs_ranges_vec(
+        equity_matrix,
+        strategies["push_co"],
+        strategies["call_sb_vs_co"],
+        combo_weights,
+    )
+    return eq3_co_sb * 30.0 - 10.0
+
+
+def ev_call_bb_vs_co_btn(
+    equity_matrix: np.ndarray,
+    combo_weights: np.ndarray,
+    strategies: dict[str, np.ndarray],
+) -> np.ndarray:
+    """Return the (169,) EV array for BB calling when CO pushed and BTN called. EV(fold) = -1.0.
+
+    Terminal 13: CO vs BTN vs BB 3-way, pot = 30.5bb (SB 0.5 dead).
+    Fully vectorized — no Python loops over hands.
+
+    Args:
+        equity_matrix: (169, 169) float32 precomputed equity matrix.
+        combo_weights: (169,) float64 combo count weights (sum = 1326).
+        strategies:    Dict with all 14 strategy arrays. Must contain:
+                       push_co, call_btn_vs_co.
+
+    Returns:
+        (169,) float64 EV of BB calling each hand (bb, net from start).
+        EV(fold) for BB = -1.0; call is correct when EV > -1.0.
+    """
+    eq3_co_btn = eq3_vs_ranges_vec(
+        equity_matrix,
+        strategies["push_co"],
+        strategies["call_btn_vs_co"],
+        combo_weights,
+    )
+    return eq3_co_btn * 30.5 - 10.0
+
+
+def ev_call_bb_vs_co_btn_sb(
+    equity_matrix: np.ndarray,
+    combo_weights: np.ndarray,
+    strategies: dict[str, np.ndarray],
+) -> np.ndarray:
+    """Return the (169,) EV array for BB calling when CO pushed, BTN called, SB called. EV(fold) = -1.0.
+
+    Terminal 15: CO vs BTN vs SB vs BB 4-way, pot = 40.0bb (no dead money).
+    Fully vectorized — no Python loops over hands.
+
+    Args:
+        equity_matrix: (169, 169) float32 precomputed equity matrix.
+        combo_weights: (169,) float64 combo count weights (sum = 1326).
+        strategies:    Dict with all 14 strategy arrays. Must contain:
+                       push_co, call_btn_vs_co, call_sb_vs_co_btn.
+
+    Returns:
+        (169,) float64 EV of BB calling each hand (bb, net from start).
+        EV(fold) for BB = -1.0; call is correct when EV > -1.0.
+    """
+    eq4_co_btn_sb = eq4_vs_ranges_vec(
+        equity_matrix,
+        strategies["push_co"],
+        strategies["call_btn_vs_co"],
+        strategies["call_sb_vs_co_btn"],
+        combo_weights,
+    )
+    return eq4_co_btn_sb * 40.0 - 10.0
+
+
+# ---------------------------------------------------------------------------
+# Best response with damping
+# ---------------------------------------------------------------------------
+
+
+def best_response(
+    ev_action: np.ndarray,
+    ev_fold: float,
+    old_strategy: np.ndarray,
+    alpha: float = 0.9,
+) -> np.ndarray:
+    """Compute the best-response strategy with damping to prevent oscillation.
+
+    Returns a (169,) array where 1.0 means push/call (ev_action > ev_fold)
+    and 0.0 means fold. Damping blends the pure best response with the
+    previous strategy to stabilise borderline hands that would otherwise
+    oscillate between push and fold across iterations.
+
+    Args:
+        ev_action:    (169,) EV of taking the action (push or call) for each hand.
+        ev_fold:      Scalar EV of folding (0.0 for CO/BTN; -0.5 for SB; -1.0 for BB).
+        old_strategy: (169,) previous strategy array (values 0.0–1.0).
+        alpha:        Damping weight on new pure best response (default 0.9).
+                      0.0 = never update; 1.0 = no damping.
+
+    Returns:
+        (169,) float64 array with values in [0.0, 1.0].
+    """
+    pure_best = (ev_action > ev_fold).astype(np.float64)
+    return alpha * pure_best + (1.0 - alpha) * old_strategy
+
+
+# ---------------------------------------------------------------------------
+# IBR Nash solver
+# ---------------------------------------------------------------------------
+
+
+def solve_nash(
+    equity_matrix: np.ndarray,
+    combo_weights: np.ndarray,
+    max_iter: int = 500,
+    tolerance: float = 0.001,
+) -> "SolverResult":
+    """Find Nash equilibrium via Iterative Best Response (IBR).
+
+    Each iteration updates all 14 strategy arrays in position order:
+    CO → BTN → SB → BB. Convergence is declared when the maximum absolute
+    strategy change across all 14 arrays drops below ``tolerance``.
+
+    Args:
+        equity_matrix: (169, 169) float32 equity matrix (from load_equity_matrix).
+        combo_weights: (169,) float64 combo count weights (sum = 1326).
+        max_iter:      Maximum number of IBR iterations (default 500).
+        tolerance:     Convergence threshold for max strategy change (default 0.001).
+
+    Returns:
+        SolverResult with final strategies, ev_table (one array per strategy),
+        iterations run, converged flag, and exploitability=0.0 (placeholder).
+    """
+    strategies = initial_strategies(combo_weights)
+    converged = False
+    iterations = 0
+
+    for _ in range(max_iter):
+        old = {k: v.copy() for k, v in strategies.items()}
+
+        # --- CO ---
+        strategies["push_co"] = best_response(
+            ev_push_co(equity_matrix, combo_weights, strategies),
+            0.0,
+            old["push_co"],
+        )
+
+        # --- BTN ---
+        strategies["push_btn_open"] = best_response(
+            ev_push_btn_open(equity_matrix, combo_weights, strategies),
+            0.0,
+            old["push_btn_open"],
+        )
+        strategies["call_btn_vs_co"] = best_response(
+            ev_call_btn_vs_co(equity_matrix, combo_weights, strategies),
+            0.0,
+            old["call_btn_vs_co"],
+        )
+
+        # --- SB ---
+        strategies["push_sb_open"] = best_response(
+            ev_push_sb_open(equity_matrix, combo_weights, strategies),
+            -0.5,
+            old["push_sb_open"],
+        )
+        strategies["call_sb_vs_co"] = best_response(
+            ev_call_sb_vs_co(equity_matrix, combo_weights, strategies),
+            -0.5,
+            old["call_sb_vs_co"],
+        )
+        strategies["call_sb_vs_btn"] = best_response(
+            ev_call_sb_vs_btn(equity_matrix, combo_weights, strategies),
+            -0.5,
+            old["call_sb_vs_btn"],
+        )
+        strategies["call_sb_vs_co_btn"] = best_response(
+            ev_call_sb_vs_co_btn(equity_matrix, combo_weights, strategies),
+            -0.5,
+            old["call_sb_vs_co_btn"],
+        )
+
+        # --- BB ---
+        strategies["call_bb_vs_sb"] = best_response(
+            ev_call_bb_vs_sb(equity_matrix, combo_weights, strategies),
+            -1.0,
+            old["call_bb_vs_sb"],
+        )
+        strategies["call_bb_vs_btn"] = best_response(
+            ev_call_bb_vs_btn(equity_matrix, combo_weights, strategies),
+            -1.0,
+            old["call_bb_vs_btn"],
+        )
+        strategies["call_bb_vs_co"] = best_response(
+            ev_call_bb_vs_co(equity_matrix, combo_weights, strategies),
+            -1.0,
+            old["call_bb_vs_co"],
+        )
+        strategies["call_bb_vs_btn_sb"] = best_response(
+            ev_call_bb_vs_btn_sb(equity_matrix, combo_weights, strategies),
+            -1.0,
+            old["call_bb_vs_btn_sb"],
+        )
+        strategies["call_bb_vs_co_sb"] = best_response(
+            ev_call_bb_vs_co_sb(equity_matrix, combo_weights, strategies),
+            -1.0,
+            old["call_bb_vs_co_sb"],
+        )
+        strategies["call_bb_vs_co_btn"] = best_response(
+            ev_call_bb_vs_co_btn(equity_matrix, combo_weights, strategies),
+            -1.0,
+            old["call_bb_vs_co_btn"],
+        )
+        strategies["call_bb_vs_co_btn_sb"] = best_response(
+            ev_call_bb_vs_co_btn_sb(equity_matrix, combo_weights, strategies),
+            -1.0,
+            old["call_bb_vs_co_btn_sb"],
+        )
+
+        iterations += 1
+
+        max_change = max(
+            np.max(np.abs(strategies[k] - old[k])) for k in STRATEGY_NAMES
+        )
+        if max_change < tolerance:
+            converged = True
+            break
+
+    # Build final EV table
+    ev_table: dict[str, np.ndarray] = {
+        "push_co":              ev_push_co(equity_matrix, combo_weights, strategies),
+        "push_btn_open":        ev_push_btn_open(equity_matrix, combo_weights, strategies),
+        "push_sb_open":         ev_push_sb_open(equity_matrix, combo_weights, strategies),
+        "call_btn_vs_co":       ev_call_btn_vs_co(equity_matrix, combo_weights, strategies),
+        "call_sb_vs_co":        ev_call_sb_vs_co(equity_matrix, combo_weights, strategies),
+        "call_sb_vs_btn":       ev_call_sb_vs_btn(equity_matrix, combo_weights, strategies),
+        "call_sb_vs_co_btn":    ev_call_sb_vs_co_btn(equity_matrix, combo_weights, strategies),
+        "call_bb_vs_sb":        ev_call_bb_vs_sb(equity_matrix, combo_weights, strategies),
+        "call_bb_vs_btn":       ev_call_bb_vs_btn(equity_matrix, combo_weights, strategies),
+        "call_bb_vs_co":        ev_call_bb_vs_co(equity_matrix, combo_weights, strategies),
+        "call_bb_vs_btn_sb":    ev_call_bb_vs_btn_sb(equity_matrix, combo_weights, strategies),
+        "call_bb_vs_co_sb":     ev_call_bb_vs_co_sb(equity_matrix, combo_weights, strategies),
+        "call_bb_vs_co_btn":    ev_call_bb_vs_co_btn(equity_matrix, combo_weights, strategies),
+        "call_bb_vs_co_btn_sb": ev_call_bb_vs_co_btn_sb(equity_matrix, combo_weights, strategies),
+    }
+
+    return SolverResult(
+        strategies=strategies,
+        ev_table=ev_table,
+        iterations=iterations,
+        converged=converged,
+        exploitability=0.0,
+    )
