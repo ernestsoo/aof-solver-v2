@@ -73,6 +73,9 @@ N_TRIPLETS: int = 169 * 168 * 167 // 6  # = 786,786
 # Output paths (relative to project root)
 OUTPUT_PATH: str = os.path.join(_ROOT, "data", "equity_3way.npy")
 CHECKPOINT_PATH: str = os.path.join(_ROOT, "data", "equity_3way_checkpoint.npy")
+# Metadata file stores [n_done, version] — version=2 means phevaluator run.
+# Old eval7 checkpoints have no meta file; they are silently discarded on load.
+CHECKPOINT_META: str = os.path.join(_ROOT, "data", "equity_3way_checkpoint_meta.npy")
 
 # ---------------------------------------------------------------------------
 # Precomputed deck — 52 card strings in RANKS x SUITS order (e.g. 'As', 'Kh')
@@ -301,14 +304,34 @@ def main() -> None:
 
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
 
-    # Load checkpoint if it exists, otherwise start fresh
+    # Load checkpoint if it exists and version matches, otherwise start fresh.
+    # Version check guards against silently reusing an old eval7 checkpoint
+    # (version=2 == phevaluator run).  Old checkpoints have no meta file.
+    _use_checkpoint = False
     if os.path.exists(CHECKPOINT_PATH):
+        if os.path.exists(CHECKPOINT_META):
+            meta = np.load(CHECKPOINT_META)
+            if len(meta) >= 2 and int(meta[1]) == 2:
+                _use_checkpoint = True
+            else:
+                print(
+                    "Checkpoint version mismatch "
+                    f"(got version {int(meta[1]) if len(meta) >= 2 else '?'}, "
+                    "expected 2) — starting fresh (old eval7 checkpoint discarded)."
+                )
+        else:
+            print(
+                "Checkpoint found but no version metadata — starting fresh "
+                "(likely an old eval7 checkpoint; discarding to avoid corrupt data)."
+            )
+
+    if _use_checkpoint:
         print(f"Loading checkpoint: {CHECKPOINT_PATH}")
         matrix = np.load(CHECKPOINT_PATH)
         assert matrix.shape == (169, 169, 169), f"Unexpected shape: {matrix.shape}"
         assert matrix.dtype == np.float32, f"Unexpected dtype: {matrix.dtype}"
     else:
-        print("No checkpoint found. Starting fresh.")
+        print("No valid checkpoint found. Starting fresh.")
         # NaN sentinel: marks triplets not yet computed
         matrix = np.full((169, 169, 169), np.nan, dtype=np.float32)
 
@@ -345,9 +368,13 @@ def main() -> None:
 
     print(f"Starting {N_WORKERS} worker processes...\n")
 
+    # Larger chunksize reduces IPC round-trips on Windows (spawn start method).
+    chunksize = max(50, len(args_list) // (N_WORKERS * 8))
+    print(f"Using chunksize={chunksize} for {len(args_list):,} remaining triplets\n")
+
     with mp.Pool(N_WORKERS) as pool:
         for result in pool.imap_unordered(
-            compute_triplet_equity, args_list, chunksize=50
+            compute_triplet_equity, args_list, chunksize=chunksize
         ):
             i, j, k, eq_i, eq_j, eq_k = result
 
@@ -378,6 +405,7 @@ def main() -> None:
             # Save checkpoint every CHECKPOINT_INTERVAL new triplets
             if n_done_total - last_checkpoint_count >= CHECKPOINT_INTERVAL:
                 np.save(CHECKPOINT_PATH, matrix)
+                np.save(CHECKPOINT_META, np.array([n_done_total, 2]))  # version=2 phevaluator
                 elapsed = time.time() - t_start
                 print(
                     f"  Checkpoint saved at {n_done_total:,} triplets "
@@ -392,10 +420,13 @@ def main() -> None:
         f"({total_elapsed / 3600:.2f}h)"
     )
 
-    # Remove checkpoint file now that computation is complete
+    # Remove checkpoint files now that computation is complete
     if os.path.exists(CHECKPOINT_PATH):
         os.remove(CHECKPOINT_PATH)
         print(f"Checkpoint removed: {CHECKPOINT_PATH}")
+    if os.path.exists(CHECKPOINT_META):
+        os.remove(CHECKPOINT_META)
+        print(f"Checkpoint meta removed: {CHECKPOINT_META}")
 
     _finalize_and_save(matrix, OUTPUT_PATH)
 

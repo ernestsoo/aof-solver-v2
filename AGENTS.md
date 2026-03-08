@@ -371,10 +371,24 @@ Created `scripts/generate_3way_equities.py`. Key details:
 - Verified: `python3 -c "import scripts.generate_3way_equities"` imports cleanly
 
 **Functions created (scripts/generate_3way_equities.py):**
-- `get_specific_combos(hand: HandInfo) -> list[tuple[eval7.Card, eval7.Card]]`
+- `get_specific_combos(hand: HandInfo) -> list[tuple[str, str]]`
 - `compute_triplet_equity(args: tuple[int,int,int,int,int]) -> tuple[int,int,int,float,float,float]`
 - `_finalize_and_save(matrix: np.ndarray, output_path: str) -> None`
 - `main() -> None`
+
+**Windows compatibility pass (2026-03-08):**
+1. **Windows guard** — `if __name__ == '__main__': mp.freeze_support(); main()` already present ✓
+2. **Chunksize** — changed from hardcoded `50` to `max(50, len(args_list) // (N_WORKERS * 8))`.
+   With 786,786 total triplets and 12 workers this gives chunksize ≈ 8,195 on a fresh run,
+   reducing IPC round-trips significantly on Windows (spawn start method).
+3. **N_BOARDS** — left at 500 (see task notes for runtime estimate ~5-6hrs — acceptable).
+4. **Worker signature** — `compute_triplet_equity(args: tuple[int,int,int,int,int])` already correct ✓
+5. **Module-level imports** — `ALL_CARDS` and `CARD_TO_IDX` already at module level ✓
+6. **Checkpoint version tag** — added `CHECKPOINT_META` path constant
+   (`data/equity_3way_checkpoint_meta.npy`). Stores `np.array([n_done_total, 2])` where version=2
+   means phevaluator run. On load, if the meta file is missing or has wrong version, the checkpoint
+   is discarded and computation starts fresh — prevents silent corruption from the old 20% eval7
+   checkpoint. Meta file is also removed on successful completion alongside the checkpoint.
 
 ---
 

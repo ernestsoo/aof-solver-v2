@@ -177,7 +177,7 @@ def main() -> None:
     t_start = time.time()
 
     with mp.Pool(N_WORKERS) as pool:
-        for i, j, eq in pool.imap_unordered(_worker, remaining_pairs, chunksize=10):
+        for i, j, eq in pool.imap_unordered(_worker, remaining_pairs, chunksize=50):
             matrix[i][j] = float(eq)
             matrix[j][i] = 1.0 - float(eq)
             done += 1
