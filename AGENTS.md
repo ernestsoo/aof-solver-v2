@@ -232,17 +232,49 @@ pytest output: **22 passed in 0.23s** ✓
 ## Phase 2: Equity Engine (`src/equity.py`)
 
 ### 2.1 — Equity matrix generator script
-- [ ] Create `scripts/generate_equities.py`
-- [ ] For each of 169×169 matchups: enumerate non-conflicting card combos
-- [ ] Use `eval7` for hand evaluation with Monte Carlo (N=5000 boards per specific matchup)
-- [ ] Only compute upper triangle (i < j), mirror: `matrix[j][i] = 1.0 - matrix[i][j]`
-- [ ] Diagonal: 0.5
-- [ ] Save to `data/equity_matrix.npy`, shape (169, 169), dtype float32
-- [ ] Print progress every 100 matchups
-- [ ] Mark `[!]` — DO NOT RUN (estimated 10-30 min)
+- [!] Create `scripts/generate_equities.py`
+- [!] For each of 169×169 matchups: enumerate non-conflicting card combos
+- [!] Use `eval7` for hand evaluation with Monte Carlo (N=1000 boards per specific combo pair)
+- [!] Only compute upper triangle (i < j), mirror: `matrix[j][i] = 1.0 - matrix[i][j]`
+- [!] Diagonal: 0.5
+- [!] Save to `data/equity_matrix.npy`, shape (169, 169), dtype float32
+- [!] Print progress every 100 matchups
+- [!] DO NOT RUN — estimated 10-30 min
 
 **Notes:**
-_(agent fills in after completing)_
+Created three files:
+- `scripts/__init__.py` — empty, makes scripts/ a package
+- `data/.gitkeep` — ensures data/ directory exists in git
+- `scripts/generate_equities.py` — the equity matrix generator (DO NOT RUN)
+
+**Key implementation decisions:**
+- N_BOARDS=1000 per specific combo pair (CLAUDE.md mentions 5000-10000 for final run; 1000 is the agent task spec; can be raised before human runs it)
+- `eval7.Card` supports `__eq__` and `__hash__`, so conflict detection uses `c1 == c3` (no string conversion needed for the check itself)
+- `str(eval7.Card('As'))` returns `'As'` — used for CARD_TO_IDX lookup (a dict mapping card string → deck index 0..51)
+- `rng=np.random.default_rng(seed=42)` passed through for reproducibility across runs
+- Progress printed every 100 matchups with elapsed time and ETA
+- End-of-run validation prints symmetry error and spot-checks 4 known equities
+
+**Functions created:**
+- `get_specific_combos(hand: HandInfo) -> list[tuple[eval7.Card, eval7.Card]]`
+  Returns 6 / 4 / 12 specific card pairs for pairs / suited / offsuit hands.
+- `compute_matchup_equity(hand_i, hand_j, n=N_BOARDS, rng=None) -> float`
+  Monte Carlo equity of hand_i vs hand_j averaged across all valid combo pairs.
+- `main() -> None`
+  Loops all 14,196 upper-triangle matchups, fills matrix, saves, prints validation.
+
+**Module-level constants:**
+- `N_BOARDS = 1000`
+- `OUTPUT_PATH = ".../data/equity_matrix.npy"`
+- `ALL_CARDS: list[eval7.Card]` — 52 cards in RANKS×SUITS order
+- `CARD_TO_IDX: dict[str, int]` — card string → deck index
+
+**Verified:**
+- `python3 -c "import scripts.generate_equities"` → clean import ✓
+- AA vs KK equity (n=50): 0.824 ≈ 0.82 ✓
+- AA vs AKs equity (n=50): 0.869 ≈ 0.87 ✓
+- Combo counts: AA=6, AKs=4, AKo=12 ✓
+- AA vs KK conflict count: 0 ✓
 
 ### 2.2 — Equity lookup functions
 - [ ] Create `src/equity.py`
