@@ -77,18 +77,25 @@ Created `src/hands.py` with:
 Verified import and instantiation work correctly with python3.
 
 ### 1.2 — Generate all 169 canonical hands
-- [ ] Generate 13 pairs (AA, KK, ..., 22) — combos=6
-- [ ] Generate 78 suited hands (AKs, AQs, ..., 32s) — combos=4
-- [ ] Generate 78 offsuit hands (AKo, AQo, ..., 32o) — combos=12
-- [ ] Store as `ALL_HANDS: list[HandInfo]` ordered by index 0-168
-- [ ] Store as `HAND_MAP: dict[str, HandInfo]` for name lookup
-- [ ] Create `COMBO_WEIGHTS: np.ndarray` shape (169,) — each entry = combo count
-- [ ] Assert: `len(ALL_HANDS) == 169` and `COMBO_WEIGHTS.sum() == 1326`
+- [x] Generate 13 pairs (AA, KK, ..., 22) — combos=6
+- [x] Generate 78 suited hands (AKs, AQs, ..., 32s) — combos=4
+- [x] Generate 78 offsuit hands (AKo, AQo, ..., 32o) — combos=12
+- [x] Store as `ALL_HANDS: list[HandInfo]` ordered by index 0-168
+- [x] Store as `HAND_MAP: dict[str, HandInfo]` for name lookup
+- [x] Create `COMBO_WEIGHTS: np.ndarray` shape (169,) — each entry = combo count
+- [x] Assert: `len(ALL_HANDS) == 169` and `COMBO_WEIGHTS.sum() == 1326`
 
 **Ordering:** Pairs first (AA=0, KK=1, ..., 22=12), then suited (AKs=13, AQs=14, ...), then offsuit (AKo, AQo, ...). Exact order within suited/offsuit: higher rank1 first, then higher rank2.
 
 **Notes:**
-_(agent fills in after completing)_
+Added to `src/hands.py`. Key details:
+- `_generate_hands() -> list[HandInfo]` — private generator, loops pairs (r=0..12), then suited (r1 < r2), then offsuit (r1 < r2). Assigns `index` sequentially.
+- `ALL_HANDS: list[HandInfo]` — module-level list, 169 entries. Indices: AA=0, KK=1, ..., 22=12, AKs=13, AQs=14, ..., 32s=90, AKo=91, ..., 32o=168.
+- `HAND_MAP: dict[str, HandInfo]` — built from `{h.name: h for h in ALL_HANDS}`.
+- `COMBO_WEIGHTS: np.ndarray` — shape (169,), dtype float64, values 6/4/12. Sum = 1326.0 ✓
+- Module-level asserts run on import — `len(ALL_HANDS)==169` and `COMBO_WEIGHTS.sum()==1326`.
+- Added `import numpy as np` at top of file.
+- Spot-checked: `HAND_MAP["AA"].index==0`, `HAND_MAP["AKs"].index==13`, `HAND_MAP["AKo"].index==91`, last hand = `32o` at index 168.
 
 ### 1.3 — Hand ranking by preflop strength
 - [ ] Add `rank: int` field to HandInfo (1=AA strongest, 169=weakest)
