@@ -871,13 +871,14 @@ existing dashboard tests still pass.
 - Responsive: wraps to column on narrow screens
 
 ### 6.2 — Nash push range display
-- [ ] Fetch `/api/solve` on page load
-- [ ] Display 4 grids side by side: CO / BTN open / SB open / BB (uncontested label)
-- [ ] Below each: "Push X% (Y combos)" summary line
-- [ ] Loading spinner while fetching
+- [x] Fetch `/api/solve` on page load
+- [x] Display 4 grids side by side: CO / BTN open / SB open / BB (uncontested label)
+- [x] Below each: "Push X% (Y combos)" summary line
+- [x] Loading spinner while fetching
 
 **Notes:**
-_(agent fills in after completing)_
+Implemented as part of task 6.1. `loadNash()` fetches `/api/solve`, renders CO/BTN/SB push grids
++ BB uncontested panel, summary lines via `summarizeStrategy()`, and status banner with spinner.
 
 ### 6.3 — Call range viewer
 - [ ] Dropdown: select position + scenario (e.g., "BTN vs CO push")
