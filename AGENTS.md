@@ -904,12 +904,47 @@ Replaced the "all 11 grids at once" layout with a dropdown-based single-grid vie
 - `pytest tests/ -q` → **290 passed, 1 skipped** ✓ (backend unchanged).
 
 ### 6.4 — Nodelock controls
-- [ ] 4 columns (CO/BTN/SB/BB): range slider (0-100%) + text input for notation + lock checkbox
-- [ ] "Solve Exploitative" button -> POST `/api/nodelock`
-- [ ] Display results replacing Nash grids
+- [x] 4 columns (CO/BTN/SB/BB): range slider (0-100%) + text input for notation + lock checkbox
+- [x] "Solve Exploitative" button -> POST `/api/nodelock`
+- [x] Display results replacing Nash grids
 
 **Notes:**
-_(agent fills in after completing)_
+All changes in `templates/index.html` only (no backend changes). 290 pytest passed, 1 skipped.
+
+**Nodelock section (added after call ranges section):**
+- `#nodelock-section` div with `.nl-columns` flex row containing 4 `.nl-col` panels.
+- CO / BTN open / SB open columns: lock push range (lockKeys: `CO`, `BTN_open`, `SB_open`).
+- BB column: lock a call range; includes a `<select>` dropdown (`#nl-bb-scenario`) to choose which
+  BB call scenario to lock (7 options from BB_vs_SB to BB_vs_CO_BTN_SB). Default: BB_vs_SB.
+- Each column: `.nl-checkbox` (lock toggle) + `.nl-slider` (0–100) + `.nl-text` (notation input).
+- Lock checkbox toggles `.locked` class on the column (highlights border blue when locked).
+- `#nl-solve-btn` button triggers `solveExploitative()`.
+
+**View toggle (added above push section):**
+- `#view-toggle-bar` (hidden until first exploitative solve, then `display:flex`).
+- `#btn-view-nash` / `#btn-view-expl` buttons call `showView('nash')` / `showView('exploitative')`.
+
+**Key JS functions added:**
+- `NL_PUSH_POSITIONS: Array` — config array: `[{id, lockKey, defaultPct}, ...]` for CO/BTN/SB.
+- `currentView: string` — `'nash'` or `'exploitative'`.
+- `nashData: object | null` — stored from `/api/solve` on page load.
+- `explData: object | null` — stored from `/api/nodelock` after solve.
+- `renderStrategies(strats)` — re-renders push grids + call panel from strategy dict.
+- `showView(view)` — toggles active button, updates section titles, calls `renderStrategies`.
+- `onNlLockChange(id)` — toggles `.locked` CSS class on column.
+- `onNlSliderChange(id)` — slider → updates text input to `"top N%"`.
+- `onNlTextChange(id)` — text → updates slider (debounced 500ms); "top N%" pattern handled
+  client-side; other notation strings call `GET /api/range?notation=...` for combo count → %.
+- `collectNlLocks() -> object` — iterates checked positions, builds `{lockKey: value}` dict
+  where value is a float (for "top N%") or string (for notation).
+- `solveExploitative()` — calls `collectNlLocks()`, POSTs to `/api/nodelock`, on success stores
+  `explData`, shows toggle bar, calls `showView('exploitative')`.
+- Modified `loadNash()` to store `nashData = data` before rendering.
+
+**Deviation from spec:** The spec said "Display results replacing Nash grids" — implemented as a
+Nash/Exploitative toggle bar instead of a hard replace, so users can switch back and forth. This
+is strictly more useful and matches "or add a toggle to switch between Nash and exploitative view"
+which was also listed in the task description.
 
 ### 6.5 — Nash vs exploitative comparison
 - [ ] Toggle: side-by-side view

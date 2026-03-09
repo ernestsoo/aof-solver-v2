@@ -262,6 +262,165 @@
       border-radius: 2px;
     }
 
+    /* ---- View toggle bar ---- */
+    .view-toggle-bar {
+      display: flex;
+      gap: 0;
+      margin-bottom: 20px;
+      border: 1px solid #334155;
+      border-radius: 5px;
+      width: fit-content;
+      overflow: hidden;
+    }
+
+    .view-btn {
+      background: #1e293b;
+      color: #64748b;
+      border: none;
+      padding: 7px 20px;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .view-btn:first-child { border-right: 1px solid #334155; }
+
+    .view-btn:hover { background: #273549; color: #94a3b8; }
+
+    .view-btn.active {
+      background: #1d4ed8;
+      color: #e0f2fe;
+    }
+
+    /* ---- Nodelock section ---- */
+    .nl-desc {
+      font-size: 11px;
+      color: #64748b;
+      margin-bottom: 16px;
+    }
+
+    .nl-columns {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      margin-bottom: 18px;
+    }
+
+    .nl-col {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 220px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 5px;
+      padding: 12px 14px;
+    }
+
+    .nl-col.locked {
+      border-color: #2563eb;
+      background: #0f1f3d;
+    }
+
+    .nl-col-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #cbd5e1;
+      letter-spacing: 0.5px;
+    }
+
+    .nl-hint {
+      font-size: 10px;
+      color: #475569;
+      margin-top: -4px;
+    }
+
+    .nl-lock-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      cursor: pointer;
+      font-size: 11px;
+      color: #94a3b8;
+      user-select: none;
+    }
+
+    .nl-checkbox {
+      width: 14px;
+      height: 14px;
+      accent-color: #2563eb;
+      cursor: pointer;
+    }
+
+    .nl-slider {
+      width: 100%;
+      accent-color: #2563eb;
+      cursor: pointer;
+    }
+
+    .nl-text {
+      background: #0f172a;
+      color: #e2e8f0;
+      border: 1px solid #334155;
+      border-radius: 3px;
+      padding: 4px 8px;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 11px;
+      width: 100%;
+      outline: none;
+    }
+
+    .nl-text:focus { border-color: #2563eb; }
+
+    .nl-bb-select {
+      background: #0f172a;
+      color: #e2e8f0;
+      border: 1px solid #334155;
+      border-radius: 3px;
+      padding: 4px 8px;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 11px;
+      width: 100%;
+      cursor: pointer;
+      outline: none;
+    }
+
+    .nl-bb-select:hover { border-color: #475569; }
+    .nl-bb-select:focus { border-color: #2563eb; }
+
+    .nl-solve-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .nl-solve-btn {
+      background: #1d4ed8;
+      color: #e0f2fe;
+      border: none;
+      border-radius: 4px;
+      padding: 8px 18px;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: 0.5px;
+      transition: background 0.15s;
+    }
+
+    .nl-solve-btn:hover { background: #1e40af; }
+    .nl-solve-btn:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
+
+    .nl-solve-hint {
+      font-size: 10px;
+      color: #475569;
+      font-style: italic;
+    }
+
     /* ---- Responsive ---- */
     @media (max-width: 960px) {
       .grid-row { gap: 16px; }
@@ -269,6 +428,8 @@
 
     @media (max-width: 600px) {
       .grid-row { flex-direction: column; }
+      .nl-columns { flex-direction: column; }
+      .nl-col { width: 100%; }
     }
   </style>
 </head>
@@ -278,6 +439,12 @@
   <p class="subtitle">4-max All-in or Fold · 10bb stacks · Nash equilibrium push/call ranges</p>
 
   <div id="status-bar"></div>
+
+  <!-- View toggle (shown after exploitative solve) -->
+  <div class="view-toggle-bar" id="view-toggle-bar" style="display:none;">
+    <button class="view-btn active" id="btn-view-nash" onclick="showView('nash')">Nash</button>
+    <button class="view-btn" id="btn-view-expl" onclick="showView('exploitative')">Exploitative</button>
+  </div>
 
   <!-- Push ranges section -->
   <div class="grid-section" id="push-section">
@@ -343,11 +510,109 @@
     </div>
   </div>
 
+  <!-- Nodelock controls section -->
+  <div class="grid-section" id="nodelock-section">
+    <div class="section-title">Nodelock Controls</div>
+    <p class="nl-desc">Check a position to lock its range, then click "Solve Exploitative".<br>
+      Slider sets top-N% by strength; or type range notation (e.g. <code>22+, ATs+</code>).</p>
+
+    <div class="nl-columns">
+
+      <!-- CO push -->
+      <div class="nl-col" id="nl-col-co">
+        <div class="nl-col-title">CO (Cutoff)</div>
+        <div class="nl-hint">Push range</div>
+        <label class="nl-lock-row">
+          <input type="checkbox" class="nl-checkbox" id="nl-lock-co"
+                 onchange="onNlLockChange('co')">
+          <span>Lock this range</span>
+        </label>
+        <input type="range" class="nl-slider" id="nl-slider-co"
+               min="0" max="100" value="20"
+               oninput="onNlSliderChange('co')">
+        <input type="text" class="nl-text" id="nl-text-co" value="top 20%"
+               oninput="onNlTextChange('co')" placeholder="top 20% or 22+,ATs+">
+      </div>
+
+      <!-- BTN open push -->
+      <div class="nl-col" id="nl-col-btn">
+        <div class="nl-col-title">BTN (Button) open</div>
+        <div class="nl-hint">Push range</div>
+        <label class="nl-lock-row">
+          <input type="checkbox" class="nl-checkbox" id="nl-lock-btn"
+                 onchange="onNlLockChange('btn')">
+          <span>Lock this range</span>
+        </label>
+        <input type="range" class="nl-slider" id="nl-slider-btn"
+               min="0" max="100" value="30"
+               oninput="onNlSliderChange('btn')">
+        <input type="text" class="nl-text" id="nl-text-btn" value="top 30%"
+               oninput="onNlTextChange('btn')" placeholder="top 30% or 22+,ATs+">
+      </div>
+
+      <!-- SB open push -->
+      <div class="nl-col" id="nl-col-sb">
+        <div class="nl-col-title">SB (Small Blind) open</div>
+        <div class="nl-hint">Push range</div>
+        <label class="nl-lock-row">
+          <input type="checkbox" class="nl-checkbox" id="nl-lock-sb"
+                 onchange="onNlLockChange('sb')">
+          <span>Lock this range</span>
+        </label>
+        <input type="range" class="nl-slider" id="nl-slider-sb"
+               min="0" max="100" value="50"
+               oninput="onNlSliderChange('sb')">
+        <input type="text" class="nl-text" id="nl-text-sb" value="top 50%"
+               oninput="onNlTextChange('sb')" placeholder="top 50% or 22+,ATs+">
+      </div>
+
+      <!-- BB call range -->
+      <div class="nl-col" id="nl-col-bb">
+        <div class="nl-col-title">BB (Big Blind)</div>
+        <div class="nl-hint">Call range</div>
+        <label class="nl-lock-row">
+          <input type="checkbox" class="nl-checkbox" id="nl-lock-bb"
+                 onchange="onNlLockChange('bb')">
+          <span>Lock this range</span>
+        </label>
+        <select class="nl-bb-select" id="nl-bb-scenario">
+          <option value="BB_vs_SB">vs SB push</option>
+          <option value="BB_vs_BTN">vs BTN push</option>
+          <option value="BB_vs_CO">vs CO push</option>
+          <option value="BB_vs_BTN_SB">vs BTN+SB push</option>
+          <option value="BB_vs_CO_SB">vs CO+SB push</option>
+          <option value="BB_vs_CO_BTN">vs CO+BTN push</option>
+          <option value="BB_vs_CO_BTN_SB">vs CO+BTN+SB push</option>
+        </select>
+        <input type="range" class="nl-slider" id="nl-slider-bb"
+               min="0" max="100" value="35"
+               oninput="onNlSliderChange('bb')">
+        <input type="text" class="nl-text" id="nl-text-bb" value="top 35%"
+               oninput="onNlTextChange('bb')" placeholder="top 35% or 22+,ATs+">
+      </div>
+
+    </div><!-- .nl-columns -->
+
+    <div class="nl-solve-row">
+      <button id="nl-solve-btn" class="nl-solve-btn" onclick="solveExploitative()">
+        Solve Exploitative
+      </button>
+      <span class="nl-solve-hint">POSTs locked ranges to /api/nodelock</span>
+    </div>
+  </div><!-- #nodelock-section -->
+
   <script>
     // ============================================================
     // Constants
     // ============================================================
     const RANKS = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
+
+    // Nodelock push positions config (key = DOM id suffix, lockKey = API key)
+    const NL_PUSH_POSITIONS = [
+      { id: 'co',  lockKey: 'CO',       defaultPct: 20 },
+      { id: 'btn', lockKey: 'BTN_open', defaultPct: 30 },
+      { id: 'sb',  lockKey: 'SB_open',  defaultPct: 50 },
+    ];
 
     // ============================================================
     // Grid rendering
@@ -552,6 +817,172 @@
     }
 
     // ============================================================
+    // View state: 'nash' | 'exploitative'
+    // ============================================================
+
+    let currentView = 'nash';
+    let nashData    = null;   // from /api/solve
+    let explData    = null;   // from /api/nodelock
+
+    /**
+     * Re-render push + call grids from the given strategy set.
+     * Called by showView() and directly during initial load.
+     */
+    function renderStrategies(strats) {
+      const pushMap = {
+        'push_co':       ['push-co-grid',  'push-co-summary'],
+        'push_btn_open': ['push-btn-grid', 'push-btn-summary'],
+        'push_sb_open':  ['push-sb-grid',  'push-sb-summary'],
+      };
+      for (const [key, [gridId, sumId]] of Object.entries(pushMap)) {
+        const d = strats[key] || {};
+        renderGrid(gridId, d);
+        document.getElementById(sumId).textContent = summarizeStrategy(d, 'Push');
+      }
+
+      // Update call panel (rebuild if first time, otherwise re-render active grid)
+      if (!document.getElementById('call-scenario-select')) {
+        buildCallPanels(strats);
+      } else {
+        callStrategies = strats;
+        const activeKey = document.getElementById('call-scenario-select').value
+                          || CALL_KEYS_ORDER[0];
+        renderCallGrid(activeKey);
+      }
+    }
+
+    /** Switch between Nash and Exploitative view. */
+    function showView(view) {
+      currentView = view;
+      document.getElementById('btn-view-nash').classList.toggle('active', view === 'nash');
+      document.getElementById('btn-view-expl').classList.toggle('active', view === 'exploitative');
+
+      const data = (view === 'nash') ? nashData : explData;
+      if (!data) return;
+
+      const label = view === 'nash' ? 'Nash' : 'Exploitative';
+      document.querySelector('#push-section .section-title').textContent =
+        `Push Ranges — ${label}`;
+      document.querySelector('#call-section .section-title').textContent =
+        `Call Ranges — ${label}`;
+
+      renderStrategies(data.strategies || {});
+    }
+
+    // ============================================================
+    // Nodelock controls
+    // ============================================================
+
+    /** Toggle locked visual state on column border. */
+    function onNlLockChange(id) {
+      const cb  = document.getElementById(`nl-lock-${id}`);
+      const col = document.getElementById(`nl-col-${id}`);
+      col.classList.toggle('locked', cb.checked);
+    }
+
+    /** Slider moved → update text input. */
+    function onNlSliderChange(id) {
+      const pct = document.getElementById(`nl-slider-${id}`).value;
+      document.getElementById(`nl-text-${id}`).value = `top ${pct}%`;
+    }
+
+    /** Text changed → update slider (debounced; calls /api/range for notation strings). */
+    const _nlDebounce = {};
+    function onNlTextChange(id) {
+      clearTimeout(_nlDebounce[id]);
+      _nlDebounce[id] = setTimeout(async () => {
+        const text   = document.getElementById(`nl-text-${id}`);
+        const slider = document.getElementById(`nl-slider-${id}`);
+        const val    = text.value.trim();
+
+        // "top N%" pattern — no API call needed
+        const topMatch = val.match(/^top\s*(\d+(?:\.\d+)?)\s*%?$/i);
+        if (topMatch) {
+          slider.value = Math.round(parseFloat(topMatch[1]));
+          return;
+        }
+
+        // Notation string → fetch combo count → approximate %
+        if (!val) return;
+        try {
+          const resp = await fetch(`/api/range?notation=${encodeURIComponent(val)}`);
+          if (resp.ok) {
+            const d = await resp.json();
+            slider.value = Math.round(d.combo_count / 1326 * 100);
+          }
+        } catch (_) { /* ignore network errors */ }
+      }, 500);
+    }
+
+    /** Collect checked positions into the locks object for POST /api/nodelock. */
+    function collectNlLocks() {
+      const locks = {};
+
+      // Push positions
+      NL_PUSH_POSITIONS.forEach(pos => {
+        const cb = document.getElementById(`nl-lock-${pos.id}`);
+        if (!cb || !cb.checked) return;
+        const val = document.getElementById(`nl-text-${pos.id}`).value.trim();
+        const m   = val.match(/^top\s*(\d+(?:\.\d+)?)\s*%?$/i);
+        locks[pos.lockKey] = m ? parseFloat(m[1]) : val;
+      });
+
+      // BB call position (uses dropdown for scenario selection)
+      const bbCb = document.getElementById('nl-lock-bb');
+      if (bbCb && bbCb.checked) {
+        const scenario = document.getElementById('nl-bb-scenario').value;
+        const val      = document.getElementById('nl-text-bb').value.trim();
+        const m        = val.match(/^top\s*(\d+(?:\.\d+)?)\s*%?$/i);
+        locks[scenario] = m ? parseFloat(m[1]) : val;
+      }
+
+      return locks;
+    }
+
+    /** POST to /api/nodelock with locked ranges, then display result. */
+    async function solveExploitative() {
+      const locks = collectNlLocks();
+      if (Object.keys(locks).length === 0) {
+        setStatus('error', 'No positions locked — tick at least one checkbox first.');
+        return;
+      }
+
+      setStatus('loading', 'Computing exploitative strategy…');
+      const btn = document.getElementById('nl-solve-btn');
+      btn.disabled = true;
+
+      try {
+        const resp = await fetch('/api/nodelock', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ locks }),
+        });
+        const data = await resp.json();
+
+        if (!resp.ok) {
+          setStatus('error',
+            `Nodelock solve failed: ${data.detail || data.error || resp.statusText}`);
+          return;
+        }
+
+        explData = data;
+
+        // Show toggle and switch to exploitative view
+        document.getElementById('view-toggle-bar').style.display = 'flex';
+        showView('exploitative');
+
+        const meta = data.metadata || {};
+        setStatus('ok',
+          `Exploitative solve: ${meta.iterations ?? '?'} iterations, ` +
+          `exploitability ${(meta.exploitability ?? 0).toFixed(4)} bb`);
+      } catch (e) {
+        setStatus('error', `Nodelock request failed: ${e.message}`);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    // ============================================================
     // Main: fetch /api/solve and render everything
     // ============================================================
 
@@ -575,9 +1006,11 @@
         return;
       }
 
+      nashData = data;   // store for view toggle
+
       const strats = data.strategies || {};
 
-      // Render push grids
+      // Render push grids (initial call — select doesn't exist yet so buildCallPanels is used)
       const pushMap = {
         'push_co':       ['push-co-grid',  'push-co-summary'],
         'push_btn_open': ['push-btn-grid', 'push-btn-summary'],
