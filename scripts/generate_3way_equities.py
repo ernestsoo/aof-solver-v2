@@ -62,7 +62,7 @@ from src.hands import ALL_HANDS, HandInfo, RANKS, SUITS
 N_BOARDS: int = 500
 
 # Number of parallel worker processes — set to your machine's thread count.
-N_WORKERS: int = 12
+N_WORKERS: int = 6  # 6 is more stable on Windows spawn; bump to 12 on Linux/Mac
 
 # Save a checkpoint every this many triplets so the run can be resumed.
 CHECKPOINT_INTERVAL: int = 10_000
@@ -193,10 +193,9 @@ def compute_triplet_equity(
                 ck0, ck1 = CARD_TO_ID[ck[0]], CARD_TO_ID[ck[1]]
 
                 # Sample all n_boards boards at once; index into rem_arr
-                all_bidx = np.stack(
-                    [rng.choice(n_rem, 5, replace=False) for _ in range(n_boards)]
-                )
-                boards_arr = rem_arr[all_bidx]  # (n_boards, 5)
+                boards_arr = np.array(
+                    [rem_arr[rng.choice(n_rem, 5, replace=False)] for _ in range(n_boards)]
+                )  # (n_boards, 5)
 
                 # Evaluate all boards with integer API — ~2x faster than string API
                 sc_i = np.array([_evaluate_cards(ci0, ci1, *row) for row in boards_arr])
