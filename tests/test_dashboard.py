@@ -5,12 +5,14 @@ Patches src.dashboard.matrix_loaded to simulate missing/present matrix.
 """
 
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
 import src.dashboard as dash
+from src.hands import HAND_NAMES
+from src.solver import SolverResult
 
 # Use the module's test client directly; patch module-level booleans per test.
 app = dash.app
@@ -123,12 +125,11 @@ class TestMatrixMissing503:
 
 
 # ---------------------------------------------------------------------------
-# Stub endpoints return 501
+# Stub endpoints return 501  (excludes /api/solve — now implemented)
 # ---------------------------------------------------------------------------
 
 class TestStubEndpoints501:
     @pytest.mark.parametrize("url,method", [
-        ("/api/solve", "GET"),
         ("/api/nodelock", "POST"),
         ("/api/hand_equity", "GET"),
         ("/api/hand_info", "GET"),
@@ -140,6 +141,117 @@ class TestStubEndpoints501:
         else:
             resp = client.post(url, json={})
         assert resp.status_code == 501
+
+
+# ---------------------------------------------------------------------------
+# /api/solve — task 5.2
+# ---------------------------------------------------------------------------
+
+def _make_nash_result() -> SolverResult:
+    """Build a minimal SolverResult with fake strategy and EV arrays."""
+    strategies = {name: np.zeros(169) for name in [
+        "push_co", "push_btn_open", "push_sb_open",
+        "call_btn_vs_co",
+        "call_sb_vs_co", "call_sb_vs_btn", "call_sb_vs_co_btn",
+        "call_bb_vs_sb", "call_bb_vs_btn", "call_bb_vs_co",
+        "call_bb_vs_btn_sb", "call_bb_vs_co_sb", "call_bb_vs_co_btn",
+        "call_bb_vs_co_btn_sb",
+    ]}
+    ev_table = {name: np.zeros(169) for name in strategies}
+    return SolverResult(
+        strategies=strategies,
+        ev_table=ev_table,
+        iterations=42,
+        converged=True,
+        exploitability=0.0012,
+    )
+
+
+class TestSolveEndpoint:
+    @pytest.fixture
+    def client_with_nash(self):
+        result = _make_nash_result()
+        with patch("src.dashboard.matrix_loaded", True), \
+             patch("src.dashboard._nash_result", result):
+            yield app.test_client()
+
+    @pytest.fixture
+    def client_solve_failed(self):
+        with patch("src.dashboard.matrix_loaded", True), \
+             patch("src.dashboard._nash_result", None):
+            yield app.test_client()
+
+    def test_solve_returns_200(self, client_with_nash):
+        resp = client_with_nash.get("/api/solve")
+        assert resp.status_code == 200
+
+    def test_solve_returns_503_when_no_matrix(self, client_no_matrix):
+        resp = client_no_matrix.get("/api/solve")
+        assert resp.status_code == 503
+
+    def test_solve_returns_500_when_solver_failed(self, client_solve_failed):
+        resp = client_solve_failed.get("/api/solve")
+        assert resp.status_code == 500
+        data = json.loads(resp.data)
+        assert data.get("error") == "Solve failed"
+
+    def test_solve_response_has_strategies_key(self, client_with_nash):
+        data = json.loads(client_with_nash.get("/api/solve").data)
+        assert "strategies" in data
+
+    def test_solve_response_has_ev_table_key(self, client_with_nash):
+        data = json.loads(client_with_nash.get("/api/solve").data)
+        assert "ev_table" in data
+
+    def test_solve_response_has_metadata_key(self, client_with_nash):
+        data = json.loads(client_with_nash.get("/api/solve").data)
+        assert "metadata" in data
+
+    def test_solve_metadata_keys(self, client_with_nash):
+        data = json.loads(client_with_nash.get("/api/solve").data)
+        meta = data["metadata"]
+        assert "iterations" in meta
+        assert "converged" in meta
+        assert "exploitability" in meta
+
+    def test_solve_metadata_values(self, client_with_nash):
+        data = json.loads(client_with_nash.get("/api/solve").data)
+        meta = data["metadata"]
+        assert meta["iterations"] == 42
+        assert meta["converged"] is True
+        assert abs(meta["exploitability"] - 0.0012) < 1e-9
+
+    def test_solve_strategies_contain_all_14_names(self, client_with_nash):
+        data = json.loads(client_with_nash.get("/api/solve").data)
+        strategies = data["strategies"]
+        assert len(strategies) == 14
+
+    def test_solve_strategy_has_169_hands(self, client_with_nash):
+        data = json.loads(client_with_nash.get("/api/solve").data)
+        push_co = data["strategies"]["push_co"]
+        assert len(push_co) == 169
+
+    def test_solve_strategy_hand_keys_are_strings(self, client_with_nash):
+        data = json.loads(client_with_nash.get("/api/solve").data)
+        push_co = data["strategies"]["push_co"]
+        assert all(isinstance(k, str) for k in push_co.keys())
+
+    def test_solve_strategy_values_are_floats(self, client_with_nash):
+        data = json.loads(client_with_nash.get("/api/solve").data)
+        push_co = data["strategies"]["push_co"]
+        assert all(isinstance(v, float) for v in push_co.values())
+
+    def test_solve_strategy_uses_canonical_hand_names(self, client_with_nash):
+        data = json.loads(client_with_nash.get("/api/solve").data)
+        push_co = data["strategies"]["push_co"]
+        assert "AA" in push_co
+        assert "72o" in push_co
+        # All 169 canonical names present
+        assert set(push_co.keys()) == set(HAND_NAMES)
+
+    def test_solve_ev_table_structure_mirrors_strategies(self, client_with_nash):
+        data = json.loads(client_with_nash.get("/api/solve").data)
+        assert set(data["ev_table"].keys()) == set(data["strategies"].keys())
 
 
 # ---------------------------------------------------------------------------

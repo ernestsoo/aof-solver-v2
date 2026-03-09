@@ -11,6 +11,8 @@ import numpy as np
 from flask import Flask, jsonify, request
 
 from src.equity import load_equity_matrix
+from src.hands import COMBO_WEIGHTS, HAND_NAMES
+from src.solver import SolverResult, solve_nash
 
 # ---------------------------------------------------------------------------
 # App and matrix initialisation
@@ -26,6 +28,14 @@ try:
 except FileNotFoundError:
     equity_matrix = None
     matrix_loaded = False
+
+# Pre-compute Nash solution at startup (only when matrix is available).
+_nash_result: SolverResult | None = None
+if matrix_loaded and equity_matrix is not None:
+    try:
+        _nash_result = solve_nash(equity_matrix, COMBO_WEIGHTS)
+    except Exception:
+        _nash_result = None
 
 # ---------------------------------------------------------------------------
 # CORS — add headers to every response
@@ -80,11 +90,34 @@ def health():
 def solve():
     """GET /api/solve — return cached Nash solution.
 
-    Stub: returns 501 Not Implemented (task 5.2).
+    Returns:
+        200 JSON: {strategies, ev_table, metadata} where each strategy/ev_table
+                  entry maps the 169 canonical hand names to float values.
+        503 JSON: if equity matrix is not loaded.
+        500 JSON: if solver failed at startup.
     """
     if not matrix_loaded:
         return _matrix_unavailable()
-    return jsonify({"error": "Not implemented"}), 501
+    if _nash_result is None:
+        return jsonify({"error": "Solve failed", "detail": "Solver did not produce a result"}), 500
+
+    strategies = {
+        name: dict(zip(HAND_NAMES, arr.tolist()))
+        for name, arr in _nash_result.strategies.items()
+    }
+    ev_table = {
+        name: dict(zip(HAND_NAMES, arr.tolist()))
+        for name, arr in _nash_result.ev_table.items()
+    }
+    return jsonify({
+        "strategies": strategies,
+        "ev_table": ev_table,
+        "metadata": {
+            "iterations": _nash_result.iterations,
+            "converged": _nash_result.converged,
+            "exploitability": _nash_result.exploitability,
+        },
+    }), 200
 
 
 @app.route("/api/nodelock", methods=["POST"])

@@ -124,6 +124,9 @@ HAND_MAP: dict[str, HandInfo] = {h.name: h for h in ALL_HANDS}
 for _rank, _name in enumerate(HAND_RANK_ORDER, start=1):
     HAND_MAP[_name].rank = _rank
 
+# Canonical hand names in index order (0-168)
+HAND_NAMES: list[str] = [h.name for h in ALL_HANDS]
+
 # Combo weights: shape (169,), values 6/4/12 depending on hand type; sums to 1326
 COMBO_WEIGHTS: np.ndarray = np.array([h.combos for h in ALL_HANDS], dtype=np.float64)
 
