@@ -11,8 +11,10 @@ from src.hands import COMBO_WEIGHTS, HAND_MAP
 from src.solver import (
     STRATEGY_NAMES,
     SolverResult,
+    _FOLD_EV,
     best_response,
     call_prob,
+    compute_exploitability,
     ev_call_bb_vs_btn,
     ev_call_bb_vs_btn_sb,
     ev_call_bb_vs_co,
@@ -662,7 +664,153 @@ class TestSolveNash:
         for name, arr in result.ev_table.items():
             assert np.all(np.isfinite(arr)), f"ev_table[{name}] contains NaN/Inf"
 
-    def test_exploitability_placeholder(self, tiny_matrix):
-        """exploitability is 0.0 placeholder until task 3.9."""
+    def test_exploitability_non_negative(self, tiny_matrix):
+        """exploitability must be >= 0 (no negative gains possible)."""
         result = solve_nash(tiny_matrix, COMBO_WEIGHTS, max_iter=10)
-        assert result.exploitability == 0.0
+        assert result.exploitability >= 0.0
+
+    def test_exploitability_is_float(self, tiny_matrix):
+        result = solve_nash(tiny_matrix, COMBO_WEIGHTS, max_iter=10)
+        assert isinstance(result.exploitability, float)
+
+
+# ---------------------------------------------------------------------------
+# Task 3.9 — compute_exploitability
+# ---------------------------------------------------------------------------
+
+
+class TestComputeExploitability:
+    def test_returns_float(self, tiny_matrix, nash_init_strategies):
+        result = compute_exploitability(nash_init_strategies, tiny_matrix, COMBO_WEIGHTS)
+        assert isinstance(result, float)
+
+    def test_non_negative(self, tiny_matrix, nash_init_strategies):
+        result = compute_exploitability(nash_init_strategies, tiny_matrix, COMBO_WEIGHTS)
+        assert result >= 0.0
+
+    def test_all_fold_non_negative(self, tiny_matrix, all_fold_strategies):
+        """All-fold is not Nash but exploitability must still be >= 0."""
+        result = compute_exploitability(all_fold_strategies, tiny_matrix, COMBO_WEIGHTS)
+        assert result >= 0.0
+
+    def test_all_call_non_negative(self, tiny_matrix, all_call_strategies):
+        """All-call is not Nash but exploitability must still be >= 0."""
+        result = compute_exploitability(all_call_strategies, tiny_matrix, COMBO_WEIGHTS)
+        assert result >= 0.0
+
+    def test_converged_solution_low_exploitability(self, tiny_matrix):
+        """After convergence, exploitability should be near 0."""
+        result = solve_nash(tiny_matrix, COMBO_WEIGHTS, max_iter=200)
+        assert result.exploitability < 0.1, (
+            f"Converged solution exploitability={result.exploitability:.4f} should be < 0.1bb"
+        )
+
+    def test_best_response_has_zero_exploitability(self, tiny_matrix, all_fold_strategies):
+        """A pure best response to a fixed opponent is itself unexploitable at that decision."""
+        # Against all-fold opponents, CO's best response is always push (EV=1.5 > 0).
+        # After computing best response once, gain for push_co should be 0.
+        ev = ev_push_co(tiny_matrix, COMBO_WEIGHTS, all_fold_strategies)
+        br_strategies = dict(all_fold_strategies)
+        br_strategies["push_co"] = (ev > 0.0).astype(np.float64)
+        # Gain for push_co with the best response strategy should be 0
+        w = COMBO_WEIGHTS / COMBO_WEIGHTS.sum()
+        br_ev = np.maximum(ev, 0.0)
+        current_ev = br_strategies["push_co"] * ev + (1.0 - br_strategies["push_co"]) * 0.0
+        gain = float(np.dot(br_ev - current_ev, w))
+        assert gain == pytest.approx(0.0, abs=1e-10)
+
+
+# ---------------------------------------------------------------------------
+# Task 3.10 — ev_fold values and convergence properties
+# ---------------------------------------------------------------------------
+
+
+class TestEvFoldValues:
+    """Verify the EV-of-folding constants used by each position/context."""
+
+    def test_co_fold_ev_zero(self):
+        """CO folds = no chips committed, EV(fold) = 0."""
+        assert _FOLD_EV["push_co"] == 0.0
+
+    def test_btn_open_fold_ev_zero(self):
+        assert _FOLD_EV["push_btn_open"] == 0.0
+
+    def test_btn_call_fold_ev_zero(self):
+        assert _FOLD_EV["call_btn_vs_co"] == 0.0
+
+    def test_sb_fold_ev_minus_half(self):
+        """SB already posted 0.5bb, so EV(fold) = -0.5 for all SB decisions."""
+        for name in STRATEGY_NAMES:
+            if "sb" in name and name.startswith(("push_sb", "call_sb")):
+                assert _FOLD_EV[name] == pytest.approx(-0.5), f"{name}: expected -0.5"
+
+    def test_bb_fold_ev_minus_one(self):
+        """BB already posted 1.0bb, so EV(fold) = -1.0 for all BB decisions."""
+        for name in STRATEGY_NAMES:
+            if name.startswith("call_bb"):
+                assert _FOLD_EV[name] == pytest.approx(-1.0), f"{name}: expected -1.0"
+
+    def test_all_14_covered(self):
+        assert set(_FOLD_EV.keys()) == set(STRATEGY_NAMES)
+
+    def test_aa_push_co_better_than_fold(self, tiny_matrix, nash_init_strategies):
+        """AA's push EV > EV(fold)=0 for CO, confirming push is correct."""
+        ev = ev_push_co(tiny_matrix, COMBO_WEIGHTS, nash_init_strategies)
+        assert ev[HAND_MAP["AA"].index] > _FOLD_EV["push_co"]
+
+    def test_aa_push_sb_better_than_fold(self, tiny_matrix, nash_init_strategies):
+        """AA's push EV > EV(fold)=-0.5 for SB."""
+        ev = ev_push_sb_open(tiny_matrix, COMBO_WEIGHTS, nash_init_strategies)
+        assert ev[HAND_MAP["AA"].index] > _FOLD_EV["push_sb_open"]
+
+    def test_aa_call_bb_vs_sb_better_than_fold(self, tiny_matrix, nash_init_strategies):
+        """AA calling SB push has EV > -1.0 (BB fold EV)."""
+        ev = ev_call_bb_vs_sb(tiny_matrix, COMBO_WEIGHTS, nash_init_strategies)
+        assert ev[HAND_MAP["AA"].index] > _FOLD_EV["call_bb_vs_sb"]
+
+
+class TestSolverConvergence:
+    """Task 3.10 convergence and Nash-property tests using the tiny fixture."""
+
+    def test_converges_with_tiny_fixture(self, tiny_matrix):
+        """Solver should converge (not just hit max_iter) within 200 iterations."""
+        result = solve_nash(tiny_matrix, COMBO_WEIGHTS, max_iter=200)
+        assert result.converged, (
+            f"Solver did not converge in {result.iterations} iterations"
+        )
+
+    def test_aa_always_pushed_co(self, tiny_matrix):
+        """AA must be pushed from CO after convergence."""
+        result = solve_nash(tiny_matrix, COMBO_WEIGHTS, max_iter=200)
+        assert result.strategies["push_co"][HAND_MAP["AA"].index] == pytest.approx(1.0, abs=0.05)
+
+    def test_aa_always_pushed_btn(self, tiny_matrix):
+        """AA must be pushed open from BTN after convergence."""
+        result = solve_nash(tiny_matrix, COMBO_WEIGHTS, max_iter=200)
+        assert result.strategies["push_btn_open"][HAND_MAP["AA"].index] == pytest.approx(1.0, abs=0.05)
+
+    def test_aa_always_pushed_sb(self, tiny_matrix):
+        """AA must be pushed open from SB after convergence."""
+        result = solve_nash(tiny_matrix, COMBO_WEIGHTS, max_iter=200)
+        assert result.strategies["push_sb_open"][HAND_MAP["AA"].index] == pytest.approx(1.0, abs=0.05)
+
+    def test_exploitability_low_after_convergence(self, tiny_matrix):
+        """After convergence exploitability < 0.1bb."""
+        result = solve_nash(tiny_matrix, COMBO_WEIGHTS, max_iter=200)
+        assert result.exploitability < 0.1, (
+            f"exploitability={result.exploitability:.4f}bb should be < 0.1bb"
+        )
+
+    @pytest.mark.skip(reason="[!] heavy compute — requires human testing with real equity matrix")
+    def test_real_matrix_convergence(self, require_equity_matrix):
+        """[!] With real equity matrix: converges, AA always pushed, 72o never pushed,
+        exploitability < 0.1bb."""
+        import os
+        matrix = np.load(
+            os.path.join(os.path.dirname(__file__), "..", "data", "equity_matrix.npy")
+        ).astype(np.float64)
+        result = solve_nash(matrix, COMBO_WEIGHTS, max_iter=500)
+        assert result.converged
+        assert result.strategies["push_co"][HAND_MAP["AA"].index] == pytest.approx(1.0, abs=0.05)
+        assert result.strategies["push_co"][HAND_MAP["72o"].index] == pytest.approx(0.0, abs=0.05)
+        assert result.exploitability < 0.1

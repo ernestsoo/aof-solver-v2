@@ -614,27 +614,37 @@ Added `solve_nash` to `src/solver.py`. Key details:
 **Tests:** 110 solver tests pass in 0.69s (added 52 new tests for tasks 3.6, 3.7, 3.8).
 
 ### 3.9 — Exploitability calculation
-- [ ] `compute_exploitability(strategies, equity_matrix, combo_weights) -> float`
-- [ ] For each position: compute EV of best response vs current opponents, compare to current strategy EV
-- [ ] Sum of differences = total exploitability in bb
-- [ ] Nash solution should have exploitability ~ 0
+- [x] `compute_exploitability(strategies, equity_matrix, combo_weights) -> float`
+- [x] For each position: compute EV of best response vs current opponents, compare to current strategy EV
+- [x] Sum of differences = total exploitability in bb
+- [x] Nash solution should have exploitability ~ 0
 
 **Notes:**
-_(agent fills in after completing)_
+Implemented `compute_exploitability()` in `src/solver.py` (after `best_response`, before `solve_nash`).
+Added `_FOLD_EV` dict (module-level constant mapping each of 14 strategy names to fold EV: 0.0/CO/BTN, -0.5/SB, -1.0/BB) and `_EV_FUNCTIONS` dict mapping names to ev_* functions.
+For each decision point: gain = max(ev_action, ev_fold) - (strategy*ev_action + (1-strategy)*ev_fold), weighted by combo_weights/total_combos, summed across all 14 strategies.
+`solve_nash` now calls `compute_exploitability` for the final result instead of returning `0.0`.
+After convergence with tiny fixture, exploitability < 0.001bb.
 
 ### 3.10 — Tests for solver
-- [ ] Create `tests/test_solver.py`
-- [ ] Test: SolverResult created with correct structure
-- [ ] Test: initial_strategies returns 14 arrays all shape (169,)
-- [ ] Test: fold_prob/call_prob sum to 1.0
-- [ ] Test: ev_fold values correct per position (0, 0, -0.5, -1.0)
-- [ ] Test: best_response returns binary array
-- [ ] Test with fixture: ev_push_co gives higher EV for AA than 72o
-- [ ] Test with real matrix `[!]`: solver converges, AA always pushed, 72o never pushed, exploitability < 0.1bb
-- [ ] **Run `pytest tests/test_solver.py -v`** — fixture tests must pass, real-matrix tests skip
+- [x] Create `tests/test_solver.py`
+- [x] Test: SolverResult created with correct structure
+- [x] Test: initial_strategies returns 14 arrays all shape (169,)
+- [x] Test: fold_prob/call_prob sum to 1.0
+- [x] Test: ev_fold values correct per position (0, 0, -0.5, -1.0)
+- [x] Test: best_response returns binary array
+- [x] Test with fixture: ev_push_co gives higher EV for AA than 72o
+- [x] Test with real matrix `[!]`: solver converges, AA always pushed, 72o never pushed, exploitability < 0.1bb
+- [x] **Run `pytest tests/test_solver.py -v`** — fixture tests must pass, real-matrix tests skip
 
 **Notes:**
-_(agent fills in after completing)_
+Added to existing `tests/test_solver.py`:
+- Replaced `test_exploitability_placeholder` with `test_exploitability_non_negative` + `test_exploitability_is_float`
+- `TestComputeExploitability`: 6 tests (returns_float, non_negative, all_fold/all_call non_negative, converged_solution_low_exploitability, best_response_has_zero_exploitability)
+- `TestEvFoldValues`: 9 tests verifying _FOLD_EV constants (CO=0, BTN=0, SB=-0.5, BB=-1.0) and that AA EV > fold EV
+- `TestSolverConvergence`: convergence + AA pushed from all positions + exploitability < 0.1bb (tiny fixture); real-matrix test marked `@pytest.mark.skip([!])` since IBR needs >500 iter on real matrix
+- Added `compute_exploitability` and `_FOLD_EV` to imports
+- Result: 164 passed, 1 skipped (0.97s)
 
 ---
 

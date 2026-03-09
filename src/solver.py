@@ -725,6 +725,31 @@ def ev_call_bb_vs_co_btn_sb(
 
 
 # ---------------------------------------------------------------------------
+# Exploitability helpers
+# ---------------------------------------------------------------------------
+
+# Fold EV per strategy name (net bb from start of hand).
+_FOLD_EV: dict[str, float] = {
+    "push_co":              0.0,
+    "push_btn_open":        0.0,
+    "push_sb_open":        -0.5,
+    "call_btn_vs_co":       0.0,
+    "call_sb_vs_co":       -0.5,
+    "call_sb_vs_btn":      -0.5,
+    "call_sb_vs_co_btn":   -0.5,
+    "call_bb_vs_sb":       -1.0,
+    "call_bb_vs_btn":      -1.0,
+    "call_bb_vs_co":       -1.0,
+    "call_bb_vs_btn_sb":   -1.0,
+    "call_bb_vs_co_sb":    -1.0,
+    "call_bb_vs_co_btn":   -1.0,
+    "call_bb_vs_co_btn_sb": -1.0,
+}
+
+assert set(_FOLD_EV.keys()) == set(STRATEGY_NAMES), "FOLD_EV keys mismatch"
+
+
+# ---------------------------------------------------------------------------
 # Best response with damping
 # ---------------------------------------------------------------------------
 
@@ -754,6 +779,73 @@ def best_response(
     """
     pure_best = (ev_action > ev_fold).astype(np.float64)
     return alpha * pure_best + (1.0 - alpha) * old_strategy
+
+
+# ---------------------------------------------------------------------------
+# Exploitability computation
+# ---------------------------------------------------------------------------
+
+# Maps each strategy name to its EV function (defined above).
+_EV_FUNCTIONS = {
+    "push_co":              ev_push_co,
+    "push_btn_open":        ev_push_btn_open,
+    "push_sb_open":         ev_push_sb_open,
+    "call_btn_vs_co":       ev_call_btn_vs_co,
+    "call_sb_vs_co":        ev_call_sb_vs_co,
+    "call_sb_vs_btn":       ev_call_sb_vs_btn,
+    "call_sb_vs_co_btn":    ev_call_sb_vs_co_btn,
+    "call_bb_vs_sb":        ev_call_bb_vs_sb,
+    "call_bb_vs_btn":       ev_call_bb_vs_btn,
+    "call_bb_vs_co":        ev_call_bb_vs_co,
+    "call_bb_vs_btn_sb":    ev_call_bb_vs_btn_sb,
+    "call_bb_vs_co_sb":     ev_call_bb_vs_co_sb,
+    "call_bb_vs_co_btn":    ev_call_bb_vs_co_btn,
+    "call_bb_vs_co_btn_sb": ev_call_bb_vs_co_btn_sb,
+}
+
+
+def compute_exploitability(
+    strategies: dict[str, np.ndarray],
+    equity_matrix: np.ndarray,
+    combo_weights: np.ndarray,
+) -> float:
+    """Compute total exploitability of the current strategies in bb.
+
+    For each of the 14 decision points, computes the combo-weighted gain
+    available by switching to the best response. Sums these gains across all
+    decision points to produce total exploitability.
+
+    At Nash equilibrium no decision point has a profitable deviation, so
+    exploitability = 0. Higher values indicate strategies farther from Nash.
+
+    Args:
+        strategies:    Dict mapping strategy name -> (169,) float64 array.
+        equity_matrix: (169, 169) float32 precomputed equity matrix.
+        combo_weights: (169,) float64 combo count weights (sum = 1326).
+
+    Returns:
+        Total exploitability in bb (>= 0.0). Near 0.0 at Nash equilibrium.
+    """
+    w = combo_weights / combo_weights.sum()
+    total = 0.0
+
+    for name in STRATEGY_NAMES:
+        ev_action = _EV_FUNCTIONS[name](equity_matrix, combo_weights, strategies)
+        ev_fold = _FOLD_EV[name]
+        strategy = strategies[name]
+
+        # Best response EV per hand: take the action only when it beats folding.
+        br_ev = np.maximum(ev_action, ev_fold)
+
+        # Current strategy EV per hand (mixed strategy in [0, 1]).
+        current_ev = strategy * ev_action + (1.0 - strategy) * ev_fold
+
+        # Gain from deviating to best response (always >= 0).
+        gain = br_ev - current_ev
+
+        total += float(np.dot(gain, w))
+
+    return total
 
 
 # ---------------------------------------------------------------------------
@@ -900,5 +992,5 @@ def solve_nash(
         ev_table=ev_table,
         iterations=iterations,
         converged=converged,
-        exploitability=0.0,
+        exploitability=compute_exploitability(strategies, equity_matrix, combo_weights),
     )
