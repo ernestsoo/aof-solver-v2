@@ -881,12 +881,27 @@ Implemented as part of task 6.1. `loadNash()` fetches `/api/solve`, renders CO/B
 + BB uncontested panel, summary lines via `summarizeStrategy()`, and status banner with spinner.
 
 ### 6.3 — Call range viewer
-- [ ] Dropdown: select position + scenario (e.g., "BTN vs CO push")
-- [ ] Show selected call range as 13x13 grid
-- [ ] Dynamic: changes grid on dropdown selection
+- [x] Dropdown: select position + scenario (e.g., "BTN vs CO push")
+- [x] Show selected call range as 13x13 grid
+- [x] Dynamic: changes grid on dropdown selection
 
 **Notes:**
-_(agent fills in after completing)_
+Replaced the "all 11 grids at once" layout with a dropdown-based single-grid viewer. All changes in `templates/index.html` only (no backend changes).
+
+**What changed:**
+- Added `CALL_KEYS_ORDER: string[]` constant — ordered list of all 11 call scenario keys for the dropdown.
+- Added `callStrategies: object` module-level variable — stores all strategy data after `/api/solve` resolves.
+- Reworked `buildCallPanels(strategies)`:
+  - Stores strategies in `callStrategies`.
+  - Builds a `<select>` dropdown with all 11 options labelled from `CALL_LABELS`.
+  - Creates ONE reusable grid panel: `#call-grid-label`, `#call-active-grid`, `#call-grid-summary`.
+  - Wires `select.addEventListener('change', ...)` to call `renderCallGrid(key)`.
+  - Renders the first scenario (`call_btn_vs_co`) by default on load.
+- Added `renderCallGrid(key: string)`:
+  - Updates label text, calls `renderGrid('call-active-grid', data)`, updates summary line.
+- Added CSS for `.call-dropdown-row`, `.call-dropdown-label`, `#call-scenario-select` (dark theme consistent with rest of UI).
+- All existing grid infrastructure (`renderGrid`, `probToColor`, `summarizeStrategy`) reused unchanged.
+- `pytest tests/ -q` → **290 passed, 1 skipped** ✓ (backend unchanged).
 
 ### 6.4 — Nodelock controls
 - [ ] 4 columns (CO/BTN/SB/BB): range slider (0-100%) + text input for notation + lock checkbox

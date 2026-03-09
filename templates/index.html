@@ -202,8 +202,42 @@
     #call-panel-grid {
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 12px;
       align-items: flex-start;
+    }
+
+    /* ---- Call scenario dropdown ---- */
+    .call-dropdown-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .call-dropdown-label {
+      font-size: 11px;
+      color: #94a3b8;
+      white-space: nowrap;
+    }
+
+    #call-scenario-select {
+      background: #1e293b;
+      color: #e2e8f0;
+      border: 1px solid #334155;
+      border-radius: 4px;
+      padding: 5px 10px;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 12px;
+      cursor: pointer;
+      outline: none;
+      min-width: 260px;
+    }
+
+    #call-scenario-select:hover {
+      border-color: #475569;
+    }
+
+    #call-scenario-select:focus {
+      border-color: #2563eb;
     }
 
     /* ---- Legend ---- */
@@ -441,39 +475,80 @@
       'call_bb_vs_co_btn_sb':'BB vs CO+BTN+SB push',
     };
 
+    // Ordered list of call scenario keys for the dropdown
+    const CALL_KEYS_ORDER = [
+      'call_btn_vs_co',
+      'call_sb_vs_co',
+      'call_sb_vs_btn',
+      'call_sb_vs_co_btn',
+      'call_bb_vs_sb',
+      'call_bb_vs_btn',
+      'call_bb_vs_co',
+      'call_bb_vs_btn_sb',
+      'call_bb_vs_co_sb',
+      'call_bb_vs_co_btn',
+      'call_bb_vs_co_btn_sb',
+    ];
+
+    // Stored strategies for the call viewer
+    let callStrategies = {};
+
     function buildCallPanels(strategies) {
+      callStrategies = strategies;
       const container = document.getElementById('call-panel-grid');
       container.innerHTML = '';
 
-      // Group into rows of 4
-      const entries = Object.entries(CALL_LABELS);
-      const row = document.createElement('div');
-      row.className = 'grid-row';
-      container.appendChild(row);
+      // Dropdown row
+      const dropdownRow = document.createElement('div');
+      dropdownRow.className = 'call-dropdown-row';
 
-      entries.forEach(([key, label]) => {
-        const data = strategies[key] || {};
-        const panel = document.createElement('div');
-        panel.className = 'grid-panel';
+      const dropdownLabel = document.createElement('span');
+      dropdownLabel.className = 'call-dropdown-label';
+      dropdownLabel.textContent = 'Scenario:';
 
-        const lbl = document.createElement('div');
-        lbl.className = 'grid-label';
-        lbl.textContent = label;
-
-        const gridDiv = document.createElement('div');
-        gridDiv.id = key + '-grid';
-
-        const summary = document.createElement('div');
-        summary.className = 'grid-summary';
-        summary.textContent = summarizeStrategy(data, 'Call');
-
-        panel.appendChild(lbl);
-        panel.appendChild(gridDiv);
-        panel.appendChild(summary);
-        row.appendChild(panel);
-
-        renderGrid(key + '-grid', data);
+      const select = document.createElement('select');
+      select.id = 'call-scenario-select';
+      CALL_KEYS_ORDER.forEach(key => {
+        const opt = document.createElement('option');
+        opt.value = key;
+        opt.textContent = CALL_LABELS[key];
+        select.appendChild(opt);
       });
+      select.addEventListener('change', () => renderCallGrid(select.value));
+
+      dropdownRow.appendChild(dropdownLabel);
+      dropdownRow.appendChild(select);
+      container.appendChild(dropdownRow);
+
+      // Single grid panel (reused across selections)
+      const panel = document.createElement('div');
+      panel.className = 'grid-panel';
+
+      const lbl = document.createElement('div');
+      lbl.className = 'grid-label';
+      lbl.id = 'call-grid-label';
+
+      const gridDiv = document.createElement('div');
+      gridDiv.id = 'call-active-grid';
+
+      const summary = document.createElement('div');
+      summary.className = 'grid-summary';
+      summary.id = 'call-grid-summary';
+
+      panel.appendChild(lbl);
+      panel.appendChild(gridDiv);
+      panel.appendChild(summary);
+      container.appendChild(panel);
+
+      // Render the first scenario by default
+      renderCallGrid(CALL_KEYS_ORDER[0]);
+    }
+
+    function renderCallGrid(key) {
+      const data = callStrategies[key] || {};
+      document.getElementById('call-grid-label').textContent = CALL_LABELS[key];
+      renderGrid('call-active-grid', data);
+      document.getElementById('call-grid-summary').textContent = summarizeStrategy(data, 'Call');
     }
 
     // ============================================================
