@@ -651,15 +651,32 @@ Added to existing `tests/test_solver.py`:
 ## Phase 4: Nodelocking (`src/nodelock.py`)
 
 ### 4.1 — Nodelock solver
-- [ ] Create `src/nodelock.py`
-- [ ] `nodelock_solve(equity_matrix, combo_weights, locked: dict, max_iter=500) -> SolverResult`
+- [x] Create `src/nodelock.py`
+- [x] `nodelock_solve(equity_matrix, combo_weights, locked: dict, max_iter=500) -> SolverResult`
   - `locked`: `{"CO": np.ndarray(169,), "BTN_open": np.ndarray(169,)}` — fixed strategies
   - Same IBR as Nash but skip locked positions during iteration
-- [ ] `lock_from_range_pct(pct: float, combo_weights: np.ndarray) -> np.ndarray` — top N% as mask
-- [ ] `lock_from_hands(hands: list[str]) -> np.ndarray` — hand list to mask
+- [x] `lock_from_range_pct(pct: float, combo_weights: np.ndarray) -> np.ndarray` — top N% as mask
+- [x] `lock_from_hands(hands: list[str]) -> np.ndarray` — hand list to mask
 
 **Notes:**
-_(agent fills in after completing)_
+Created `src/nodelock.py` with three public functions:
+
+- `nodelock_solve(equity_matrix, combo_weights, locked, max_iter=500, tolerance=0.001) -> SolverResult`
+  — Identical IBR loop to `solve_nash` but guards each of the 14 strategy updates with
+  `if name not in locked`. Initialises via `initial_strategies()`, overwrites locked values,
+  then iterates. Convergence check only covers non-locked strategies. Validates locked keys
+  against STRATEGY_NAMES and raises ValueError for unknowns. Returns full ev_table and
+  exploitability via existing `compute_exploitability`.
+
+- `lock_from_range_pct(pct: float, combo_weights: np.ndarray) -> np.ndarray`
+  — Thin wrapper around `top_n_percent(pct)`. `combo_weights` accepted for API symmetry but
+  not used (ranking is global).
+
+- `lock_from_hands(hands: list[str]) -> np.ndarray`
+  — Thin wrapper around `range_to_mask(hands)`.
+
+All imports from `src.solver` (reuses all EV functions, `_FOLD_EV`, `_EV_FUNCTIONS`, etc.).
+164 tests pass, 1 skipped (no equity matrix). No new tests added (task 4.3).
 
 ### 4.2 — Exploitability for nodelock
 - [ ] Reuse `compute_exploitability()` from solver.py
