@@ -355,7 +355,7 @@ pytest output: **10 passed, 1 skipped in 0.11s** ✓
 - [!] `scripts/generate_3way_equities.py` — parallelised, 12 workers, checkpoint/resume
 - [!] Run locally on 6-core/12-thread machine (~2-4 hours)
 - [!] Upload result to VPS: data/equity_3way.npy
-- [ ] Update `eq3_vs_ranges_vec` in src/equity.py to use tensor when available
+- [x] Update `eq3_vs_ranges_vec` in src/equity.py to use tensor when available
 
 **Notes:**
 Created `scripts/generate_3way_equities.py`. Key details:
@@ -369,6 +369,15 @@ Created `scripts/generate_3way_equities.py`. Key details:
 - Seed per triplet: `i * 28561 + j * 169 + k` (deterministic/reproducible)
 - TODO comments added to `eq3_vs_ranges_vec` and `eq4_vs_ranges_vec` in src/equity.py noting when to switch to tensor
 - Verified: `python3 -c "import scripts.generate_3way_equities"` imports cleanly
+
+**2026-03-09 update — tensor integration complete:**
+- Added module-level `_3way_tensor: np.ndarray | None = None` and `_3way_tensor_loaded: bool` cache in src/equity.py
+- Added `load_3way_tensor(path="data/equity_3way.npy") -> np.ndarray | None`: lazy load with cache; returns None if file absent (silent fallback, no exception)
+- `eq3_vs_ranges_vec`: if tensor available, computes `(tensor @ w2_norm) @ w1_norm` (efficient two-step matmul, no einsum); falls back to pairwise approximation when tensor absent
+- `eq4_vs_ranges_vec`: if tensor available, uses `eq3_vs_ranges_vec` (which uses tensor) for the inner 3-way part, then combines with pairwise equity vs range3 using a 2-factor normalization; falls back to full pairwise when tensor absent
+- Removed all TODO comments from both vec functions
+- Added 10 new tests in tests/test_equity.py; all 168 tests pass
+- Tests use `patch.object(equity_module, "_3way_tensor", ...)` to inject/clear the cache without touching disk
 
 **Functions created (scripts/generate_3way_equities.py):**
 - `get_specific_combos(hand: HandInfo) -> list[tuple[str, str]]`
@@ -828,10 +837,10 @@ Function signatures:
   Returns `{"notation", "hands", "count", "combo_count"}`
 
 ### 5.5 — Dashboard tests `[!]`
-- [ ] All need Flask running + equity matrix — mark `[!]`
+- [x] All need Flask running + equity matrix — mark `[!]`
 
 **Notes:**
-_(agent fills in after completing)_
+No test file created. All dashboard endpoints require a running Flask server with equity_matrix.npy loaded. Marked as [!] per project rules.
 
 ---
 

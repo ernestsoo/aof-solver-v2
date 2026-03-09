@@ -4,7 +4,41 @@ All equity functions operate on the precomputed 169x169 equity matrix.
 No Monte Carlo at solve time — all lookups are O(1) or vectorized numpy.
 """
 
+import os
+
 import numpy as np
+
+# ---------------------------------------------------------------------------
+# 3-way equity tensor (lazy-loaded cache)
+# ---------------------------------------------------------------------------
+# Shape: (169, 169, 169), dtype float32.
+# tensor[h, i, j] = equity of hand h in a 3-way pot vs hands i and j.
+# Loaded from data/equity_3way.npy on first use; None if file not present.
+
+_3way_tensor: np.ndarray | None = None
+_3way_tensor_loaded: bool = False  # True once we've attempted the load
+
+
+def load_3way_tensor(path: str = "data/equity_3way.npy") -> np.ndarray | None:
+    """Load the 3-way equity tensor from disk (lazy, cached).
+
+    Returns the (169, 169, 169) float32 tensor if the file exists, or None
+    if the file is not present. The result is cached in the module-level
+    ``_3way_tensor`` variable so subsequent calls are free.
+
+    Args:
+        path: Path to the .npy file. Default: "data/equity_3way.npy".
+
+    Returns:
+        np.ndarray of shape (169, 169, 169), dtype float32, or None.
+    """
+    global _3way_tensor, _3way_tensor_loaded
+    if _3way_tensor_loaded:
+        return _3way_tensor
+    _3way_tensor_loaded = True
+    if os.path.exists(path):
+        _3way_tensor = np.load(path).astype(np.float32)
+    return _3way_tensor
 
 
 def load_equity_matrix(path: str = "data/equity_matrix.npy") -> np.ndarray:
@@ -246,18 +280,23 @@ def eq3_vs_ranges_vec(
     range2_mask: np.ndarray,
     combo_weights: np.ndarray,
 ) -> np.ndarray:
-    """Return approximate 3-way equity for every hand vs two ranges (vectorized).
+    """Return 3-way equity for every hand vs two ranges (vectorized).
 
-    Applies the pairwise independence approximation across all 169 hands:
+    Uses the precomputed 3-way tensor (data/equity_3way.npy) when available
+    for an exact weighted-average lookup; falls back to the pairwise independence
+    approximation when the tensor is not present.
+
+    **Tensor path** (exact):
+        w1 = range1_mask * combo_weights  (unnormalized)
+        w2 = range2_mask * combo_weights  (unnormalized)
+        equity[h] = sum_{i,j} tensor[h,i,j] * w1_norm[i] * w2_norm[j]
+        Computed efficiently as: (tensor @ w2_norm) @ w1_norm  →  (169,)
+
+    **Fallback path** (pairwise independence approximation):
         a = hand_vs_range_equity_vec(matrix, range1, combo_weights)  # (169,)
         b = hand_vs_range_equity_vec(matrix, range2, combo_weights)  # (169,)
         raw = a * b
         equity = raw / (raw + (1-a)*b + a*(1-b) + 1e-10)
-
-    TODO: Replace pairwise approximation with exact lookup from the precomputed
-    3-way tensor (data/equity_3way.npy, shape 169x169x169) once it is available.
-    Load with np.load("data/equity_3way.npy") and index as tensor[h, :, :] dotted
-    against the two weighted range vectors — see scripts/generate_3way_equities.py.
 
     Args:
         matrix:        (169, 169) equity matrix.
@@ -266,8 +305,22 @@ def eq3_vs_ranges_vec(
         combo_weights: (169,) combo count weights.
 
     Returns:
-        (169,) float64 array: approximate 3-way equity for each hand.
+        (169,) float64 array: 3-way equity for each hand.
     """
+    tensor = load_3way_tensor()
+    if tensor is not None:
+        w1 = range1_mask * combo_weights
+        w2 = range2_mask * combo_weights
+        denom1 = w1.sum()
+        denom2 = w2.sum()
+        if denom1 == 0.0 or denom2 == 0.0:
+            return np.full(169, 1.0 / 3.0)
+        w1_norm = w1 / denom1
+        w2_norm = w2 / denom2
+        # (169,169,169) @ (169,) → (169,169), then (169,169) @ (169,) → (169,)
+        return (tensor @ w2_norm) @ w1_norm
+
+    # Fallback: pairwise independence approximation
     a = hand_vs_range_equity_vec(matrix, range1_mask, combo_weights)
     b = hand_vs_range_equity_vec(matrix, range2_mask, combo_weights)
     raw = a * b
@@ -284,19 +337,23 @@ def eq4_vs_ranges_vec(
 ) -> np.ndarray:
     """Return approximate 4-way equity for every hand vs three ranges (vectorized).
 
-    Extends the pairwise independence approximation to 4-way pots:
+    Uses the precomputed 3-way tensor when available for a better approximation;
+    falls back to the pure pairwise independence approximation otherwise.
+
+    **Tensor path**:
+        Compute eq3(h, r1, r2) via tensor → (169,) array.
+        Then combine with pairwise equity vs r3 using a 2-factor normalization:
+            eq3_12 = eq3_vs_ranges_vec(tensor, r1, r2, ...)   (169,)
+            eq_r3  = hand_vs_range_equity_vec(matrix, r3, ...) (169,)
+            raw    = eq3_12 * eq_r3
+            equity = raw / (raw + (1-eq3_12)*eq_r3 + eq3_12*(1-eq_r3) + 1e-10)
+
+    **Fallback path** (pairwise independence approximation):
         a = hand_vs_range_equity_vec(matrix, range1, combo_weights)  # (169,)
         b = hand_vs_range_equity_vec(matrix, range2, combo_weights)  # (169,)
         c = hand_vs_range_equity_vec(matrix, range3, combo_weights)  # (169,)
         raw = a * b * c
         equity = raw / (raw + (1-a)*b*c + a*(1-b)*c + a*b*(1-c) + 1e-10)
-
-    TODO: Improve using the 3-way tensor (data/equity_3way.npy) once available.
-    4-way equity can be approximated as: for each hand h, average eq3(h, op1, op2)
-    weighted by the probability of each op3 hand being dealt, i.e.:
-        eq4(h, r1, r2, r3) ≈ sum over k in r3: [w_k * eq3_tensor[h, :, :] dotted
-        against r1, r2 | opponent k] / total_weight_r3
-    This is more accurate than the pure pairwise approximation used here.
 
     Args:
         matrix:        (169, 169) equity matrix.
@@ -308,6 +365,16 @@ def eq4_vs_ranges_vec(
     Returns:
         (169,) float64 array: approximate 4-way equity for each hand.
     """
+    tensor = load_3way_tensor()
+    if tensor is not None:
+        # Use exact 3-way tensor for r1, r2; combine with pairwise for r3
+        eq3_12 = eq3_vs_ranges_vec(matrix, range1_mask, range2_mask, combo_weights)
+        eq_r3 = hand_vs_range_equity_vec(matrix, range3_mask, combo_weights)
+        raw = eq3_12 * eq_r3
+        denom = raw + (1.0 - eq3_12) * eq_r3 + eq3_12 * (1.0 - eq_r3) + 1e-10
+        return raw / denom
+
+    # Fallback: pairwise independence approximation
     a = hand_vs_range_equity_vec(matrix, range1_mask, combo_weights)
     b = hand_vs_range_equity_vec(matrix, range2_mask, combo_weights)
     c = hand_vs_range_equity_vec(matrix, range3_mask, combo_weights)

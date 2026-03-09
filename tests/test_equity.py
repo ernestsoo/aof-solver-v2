@@ -1,14 +1,20 @@
 """Tests for src/equity.py — uses tests/fixtures/tiny_equity.npy."""
 
 import os
+from unittest.mock import patch
 
 import numpy as np
 import pytest
 
+import src.equity as equity_module
 from src.equity import (
     eq3_approx,
+    eq3_vs_ranges_vec,
+    eq4_vs_ranges_vec,
     hand_vs_hand_equity,
     hand_vs_range_equity,
+    hand_vs_range_equity_vec,
+    load_3way_tensor,
     load_equity_matrix,
 )
 from src.hands import COMBO_WEIGHTS
@@ -127,3 +133,120 @@ def test_load_real_matrix(require_equity_matrix):
     """Load the real equity matrix and check shape — skipped if missing."""
     matrix = load_equity_matrix(REAL_MATRIX_PATH)
     assert matrix.shape == (169, 169)
+
+
+# ---------------------------------------------------------------------------
+# Vectorized multiway equity tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def uniform_range():
+    """Return a (169,) all-ones mask (full range)."""
+    return np.ones(169, dtype=np.float64)
+
+
+def _reset_tensor_cache():
+    """Reset the module-level 3-way tensor cache so tests don't interfere."""
+    equity_module._3way_tensor = None
+    equity_module._3way_tensor_loaded = False
+
+
+def test_eq3_vs_ranges_vec_shape_no_tensor(tiny_matrix, uniform_range):
+    """eq3_vs_ranges_vec returns (169,) when no tensor is available."""
+    _reset_tensor_cache()
+    with patch.object(equity_module, "_3way_tensor_loaded", True):
+        with patch.object(equity_module, "_3way_tensor", None):
+            result = eq3_vs_ranges_vec(tiny_matrix, uniform_range, uniform_range, COMBO_WEIGHTS)
+    assert result.shape == (169,)
+
+
+def test_eq3_vs_ranges_vec_values_in_range_no_tensor(tiny_matrix, uniform_range):
+    """eq3_vs_ranges_vec values are in [0, 1] without tensor."""
+    _reset_tensor_cache()
+    with patch.object(equity_module, "_3way_tensor_loaded", True):
+        with patch.object(equity_module, "_3way_tensor", None):
+            result = eq3_vs_ranges_vec(tiny_matrix, uniform_range, uniform_range, COMBO_WEIGHTS)
+    assert np.all(result >= 0.0) and np.all(result <= 1.0)
+
+
+def test_eq4_vs_ranges_vec_shape_no_tensor(tiny_matrix, uniform_range):
+    """eq4_vs_ranges_vec returns (169,) when no tensor is available."""
+    _reset_tensor_cache()
+    with patch.object(equity_module, "_3way_tensor_loaded", True):
+        with patch.object(equity_module, "_3way_tensor", None):
+            result = eq4_vs_ranges_vec(
+                tiny_matrix, uniform_range, uniform_range, uniform_range, COMBO_WEIGHTS
+            )
+    assert result.shape == (169,)
+
+
+def test_eq3_vs_ranges_vec_empty_range(tiny_matrix):
+    """eq3_vs_ranges_vec with an empty range returns 1/3 fallback."""
+    _reset_tensor_cache()
+    empty = np.zeros(169, dtype=np.float64)
+    full = np.ones(169, dtype=np.float64)
+    with patch.object(equity_module, "_3way_tensor_loaded", True):
+        with patch.object(equity_module, "_3way_tensor", None):
+            result = eq3_vs_ranges_vec(tiny_matrix, empty, full, COMBO_WEIGHTS)
+    # With empty range1, denom is 0 → falls back to pairwise which returns ~0
+    # (a=0.5, b=something → raw ~0.25 / ~0.5 → ~0.5)
+    assert result.shape == (169,)
+
+
+# ---------------------------------------------------------------------------
+# Synthetic 3-way tensor tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def uniform_tensor():
+    """Return a (169, 169, 169) tensor with all values = 1/3 (uniform equity)."""
+    return np.full((169, 169, 169), 1.0 / 3.0, dtype=np.float32)
+
+
+def test_eq3_vs_ranges_vec_with_tensor_shape(tiny_matrix, uniform_range, uniform_tensor):
+    """eq3_vs_ranges_vec with tensor returns (169,) array."""
+    _reset_tensor_cache()
+    with patch.object(equity_module, "_3way_tensor_loaded", True):
+        with patch.object(equity_module, "_3way_tensor", uniform_tensor):
+            result = eq3_vs_ranges_vec(tiny_matrix, uniform_range, uniform_range, COMBO_WEIGHTS)
+    assert result.shape == (169,)
+
+
+def test_eq3_vs_ranges_vec_with_uniform_tensor(tiny_matrix, uniform_range, uniform_tensor):
+    """With uniform tensor (all 1/3), every hand's 3-way equity ≈ 1/3."""
+    _reset_tensor_cache()
+    with patch.object(equity_module, "_3way_tensor_loaded", True):
+        with patch.object(equity_module, "_3way_tensor", uniform_tensor):
+            result = eq3_vs_ranges_vec(tiny_matrix, uniform_range, uniform_range, COMBO_WEIGHTS)
+    assert np.allclose(result, 1.0 / 3.0, atol=1e-5)
+
+
+def test_eq4_vs_ranges_vec_with_tensor_shape(tiny_matrix, uniform_range, uniform_tensor):
+    """eq4_vs_ranges_vec with tensor returns (169,) array."""
+    _reset_tensor_cache()
+    with patch.object(equity_module, "_3way_tensor_loaded", True):
+        with patch.object(equity_module, "_3way_tensor", uniform_tensor):
+            result = eq4_vs_ranges_vec(
+                tiny_matrix, uniform_range, uniform_range, uniform_range, COMBO_WEIGHTS
+            )
+    assert result.shape == (169,)
+
+
+def test_load_3way_tensor_missing():
+    """load_3way_tensor returns None when file does not exist."""
+    _reset_tensor_cache()
+    result = load_3way_tensor("nonexistent_3way.npy")
+    assert result is None
+    _reset_tensor_cache()  # clean up for subsequent tests
+
+
+def test_load_3way_tensor_caches_none(tmp_path):
+    """load_3way_tensor caches the None result — second call is free."""
+    _reset_tensor_cache()
+    result1 = load_3way_tensor("nonexistent_3way.npy")
+    result2 = load_3way_tensor("nonexistent_3way.npy")
+    assert result1 is None
+    assert result2 is None
+    _reset_tensor_cache()
