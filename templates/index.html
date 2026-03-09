@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AoF Nash Solver</title>
+  <style>
+    /* ---- Reset & base ---- */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0f172a;
+      color: #e2e8f0;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 13px;
+      min-height: 100vh;
+      padding: 16px;
+    }
+
+    h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #f1f5f9;
+      margin-bottom: 4px;
+      letter-spacing: 0.5px;
+    }
+
+    .subtitle {
+      color: #64748b;
+      font-size: 11px;
+      margin-bottom: 20px;
+    }
+
+    /* ---- Section headers ---- */
+    .section-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid #1e293b;
+      padding-bottom: 6px;
+    }
+
+    /* ---- Grid section layout ---- */
+    .grid-section {
+      margin-bottom: 28px;
+    }
+
+    .grid-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 24px;
+    }
+
+    .grid-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .grid-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #cbd5e1;
+      text-align: center;
+      letter-spacing: 0.5px;
+    }
+
+    .grid-summary {
+      font-size: 10px;
+      color: #64748b;
+      text-align: center;
+    }
+
+    /* ---- Hand grid container ---- */
+    .hand-grid {
+      display: grid;
+      grid-template-columns: repeat(13, 30px);
+      grid-template-rows: repeat(13, 30px);
+      gap: 1px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 3px;
+      padding: 1px;
+    }
+
+    /* ---- Individual hand cells ---- */
+    .hand-cell {
+      width: 30px;
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.9);
+      cursor: default;
+      user-select: none;
+      border-radius: 1px;
+      transition: outline 0.05s;
+      position: relative;
+    }
+
+    .hand-cell:hover {
+      outline: 2px solid #f8fafc;
+      z-index: 10;
+    }
+
+    /* ---- Tooltip ---- */
+    .hand-cell[data-tip]:hover::after {
+      content: attr(data-tip);
+      position: absolute;
+      bottom: calc(100% + 4px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #0f172a;
+      border: 1px solid #475569;
+      color: #e2e8f0;
+      font-size: 10px;
+      white-space: nowrap;
+      padding: 3px 6px;
+      border-radius: 3px;
+      pointer-events: none;
+      z-index: 100;
+    }
+
+    /* ---- BB uncontested special panel ---- */
+    .bb-panel {
+      width: calc(13 * 30px + 14px); /* same width as grid */
+      height: calc(13 * 30px + 14px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 3px;
+      gap: 8px;
+    }
+
+    .bb-panel .bb-icon {
+      font-size: 32px;
+    }
+
+    .bb-panel .bb-text {
+      font-size: 11px;
+      color: #64748b;
+      text-align: center;
+      max-width: 200px;
+      line-height: 1.5;
+    }
+
+    /* ---- Loading / error states ---- */
+    .status-banner {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+      font-size: 12px;
+    }
+
+    .status-banner.loading {
+      background: #1e3a5f;
+      border: 1px solid #2563eb;
+      color: #93c5fd;
+    }
+
+    .status-banner.error {
+      background: #3b1212;
+      border: 1px solid #b91c1c;
+      color: #fca5a5;
+    }
+
+    .status-banner.ok {
+      background: #0f2e1e;
+      border: 1px solid #15803d;
+      color: #86efac;
+    }
+
+    .spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid #2563eb;
+      border-top-color: #93c5fd;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex-shrink: 0;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ---- Call range section ---- */
+    #call-section {
+      margin-top: 8px;
+    }
+
+    #call-panel-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: flex-start;
+    }
+
+    /* ---- Legend ---- */
+    .legend {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+      font-size: 10px;
+      color: #94a3b8;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .legend-swatch {
+      width: 16px;
+      height: 16px;
+      border-radius: 2px;
+    }
+
+    /* ---- Responsive ---- */
+    @media (max-width: 960px) {
+      .grid-row { gap: 16px; }
+    }
+
+    @media (max-width: 600px) {
+      .grid-row { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+
+  <h1>AoF Nash Solver</h1>
+  <p class="subtitle">4-max All-in or Fold · 10bb stacks · Nash equilibrium push/call ranges</p>
+
+  <div id="status-bar"></div>
+
+  <!-- Push ranges section -->
+  <div class="grid-section" id="push-section">
+    <div class="section-title">Push Ranges</div>
+    <div class="legend">
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#22c55e;"></div> Push (100%)
+      </div>
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#ef4444;"></div> Fold (0%)
+      </div>
+      <div class="legend-item" style="color:#64748b; font-style:italic;">
+        Hover cell for hand name
+      </div>
+    </div>
+    <div class="grid-row" id="push-grids-row">
+
+      <!-- CO push -->
+      <div class="grid-panel">
+        <div class="grid-label">CO (Cutoff)</div>
+        <div id="push-co-grid"></div>
+        <div class="grid-summary" id="push-co-summary">—</div>
+      </div>
+
+      <!-- BTN open push -->
+      <div class="grid-panel">
+        <div class="grid-label">BTN (Button) open</div>
+        <div id="push-btn-grid"></div>
+        <div class="grid-summary" id="push-btn-summary">—</div>
+      </div>
+
+      <!-- SB open push -->
+      <div class="grid-panel">
+        <div class="grid-label">SB (Small Blind) open</div>
+        <div id="push-sb-grid"></div>
+        <div class="grid-summary" id="push-sb-summary">—</div>
+      </div>
+
+      <!-- BB uncontested -->
+      <div class="grid-panel">
+        <div class="grid-label">BB (Big Blind)</div>
+        <div class="bb-panel" id="bb-panel">
+          <div class="bb-icon">🏆</div>
+          <div class="bb-text">
+            When all fold to BB, BB wins the pot uncontested (+0.5bb).
+            No decision required.
+          </div>
+        </div>
+        <div class="grid-summary">Always wins blinds uncontested</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Call ranges section -->
+  <div class="grid-section" id="call-section">
+    <div class="section-title">Call Ranges</div>
+    <div id="call-panel-grid">
+      <!-- Populated by JS after /api/solve -->
+      <div style="color:#475569; font-size:11px; font-style:italic;">
+        Loading call ranges…
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ============================================================
+    // Constants
+    // ============================================================
+    const RANKS = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
+
+    // ============================================================
+    // Grid rendering
+    // ============================================================
+
+    /**
+     * Map (row, col) in 13×13 matrix to canonical hand name.
+     * row == col  → pair (e.g. "AA")
+     * row <  col  → suited (e.g. "AKs"), higher rank = lower index
+     * row >  col  → offsuit (e.g. "AKo")
+     */
+    function gridToHand(row, col) {
+      if (row === col) {
+        return RANKS[row] + RANKS[row];
+      } else if (row < col) {
+        return RANKS[row] + RANKS[col] + 's';
+      } else {
+        return RANKS[col] + RANKS[row] + 'o';
+      }
+    }
+
+    /**
+     * Linear colour interpolation from red (#ef4444) to green (#22c55e).
+     * prob = 0.0 → red, prob = 1.0 → green.
+     */
+    function probToColor(prob) {
+      const r0 = 0xef, g0 = 0x44, b0 = 0x44; // #ef4444
+      const r1 = 0x22, g1 = 0xc5, b1 = 0x5e; // #22c55e
+      const t = Math.max(0, Math.min(1, prob));
+      const r = Math.round(r0 + (r1 - r0) * t);
+      const g = Math.round(g0 + (g1 - g0) * t);
+      const b = Math.round(b0 + (b1 - b0) * t);
+      return `rgb(${r},${g},${b})`;
+    }
+
+    /**
+     * Render a 13×13 poker hand grid into the DOM element with id=containerId.
+     *
+     * @param {string} containerId - ID of the container element.
+     * @param {Object} strategyData - Map of hand name → probability (0.0–1.0).
+     *   Hands absent from the map are treated as 0.0 (fold).
+     */
+    function renderGrid(containerId, strategyData) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+
+      // Clear previous content
+      container.innerHTML = '';
+      container.className = 'hand-grid';
+
+      for (let row = 0; row < 13; row++) {
+        for (let col = 0; col < 13; col++) {
+          const hand = gridToHand(row, col);
+          const prob = (strategyData && hand in strategyData)
+            ? strategyData[hand]
+            : 0.0;
+
+          const cell = document.createElement('div');
+          cell.className = 'hand-cell';
+          cell.style.background = probToColor(prob);
+          cell.textContent = hand;
+          cell.setAttribute('data-tip', `${hand}: ${(prob * 100).toFixed(0)}%`);
+
+          container.appendChild(cell);
+        }
+      }
+    }
+
+    // ============================================================
+    // Summary line: "Push X.X% (Y combos)"
+    // ============================================================
+
+    const COMBO_COUNTS = { pair: 6, suited: 4, offsuit: 12 };
+
+    function handType(name) {
+      if (name.length === 2)        return 'pair';
+      if (name.endsWith('s'))       return 'suited';
+      return 'offsuit';
+    }
+
+    function summarizeStrategy(strategyData, verb) {
+      let totalCombos = 1326;
+      let actionCombos = 0;
+      for (const [hand, prob] of Object.entries(strategyData)) {
+        const type = handType(hand);
+        const combos = COMBO_COUNTS[type] || 0;
+        actionCombos += prob * combos;
+      }
+      const pct = (actionCombos / totalCombos * 100).toFixed(1);
+      return `${verb} ${pct}% (${Math.round(actionCombos)} combos)`;
+    }
+
+    // ============================================================
+    // Status bar helpers
+    // ============================================================
+
+    function setStatus(type, html) {
+      const bar = document.getElementById('status-bar');
+      if (type === 'loading') {
+        bar.innerHTML = `<div class="status-banner loading"><div class="spinner"></div>${html}</div>`;
+      } else if (type === 'error') {
+        bar.innerHTML = `<div class="status-banner error">&#9888; ${html}</div>`;
+      } else if (type === 'ok') {
+        bar.innerHTML = `<div class="status-banner ok">&#10003; ${html}</div>`;
+      } else {
+        bar.innerHTML = '';
+      }
+    }
+
+    // ============================================================
+    // Call range panels
+    // ============================================================
+
+    const CALL_LABELS = {
+      'call_btn_vs_co':      'BTN vs CO push',
+      'call_sb_vs_co':       'SB vs CO push (BTN fold)',
+      'call_sb_vs_btn':      'SB vs BTN push (CO fold)',
+      'call_sb_vs_co_btn':   'SB vs CO+BTN push',
+      'call_bb_vs_sb':       'BB vs SB push',
+      'call_bb_vs_btn':      'BB vs BTN push',
+      'call_bb_vs_co':       'BB vs CO push',
+      'call_bb_vs_btn_sb':   'BB vs BTN+SB push',
+      'call_bb_vs_co_sb':    'BB vs CO+SB push',
+      'call_bb_vs_co_btn':   'BB vs CO+BTN push',
+      'call_bb_vs_co_btn_sb':'BB vs CO+BTN+SB push',
+    };
+
+    function buildCallPanels(strategies) {
+      const container = document.getElementById('call-panel-grid');
+      container.innerHTML = '';
+
+      // Group into rows of 4
+      const entries = Object.entries(CALL_LABELS);
+      const row = document.createElement('div');
+      row.className = 'grid-row';
+      container.appendChild(row);
+
+      entries.forEach(([key, label]) => {
+        const data = strategies[key] || {};
+        const panel = document.createElement('div');
+        panel.className = 'grid-panel';
+
+        const lbl = document.createElement('div');
+        lbl.className = 'grid-label';
+        lbl.textContent = label;
+
+        const gridDiv = document.createElement('div');
+        gridDiv.id = key + '-grid';
+
+        const summary = document.createElement('div');
+        summary.className = 'grid-summary';
+        summary.textContent = summarizeStrategy(data, 'Call');
+
+        panel.appendChild(lbl);
+        panel.appendChild(gridDiv);
+        panel.appendChild(summary);
+        row.appendChild(panel);
+
+        renderGrid(key + '-grid', data);
+      });
+    }
+
+    // ============================================================
+    // Main: fetch /api/solve and render everything
+    // ============================================================
+
+    async function loadNash() {
+      setStatus('loading', 'Fetching Nash solution…');
+      let data;
+      try {
+        const resp = await fetch('/api/solve');
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          if (resp.status === 503) {
+            setStatus('error', 'Equity matrix not loaded on server (data/equity_matrix.npy missing).');
+          } else {
+            setStatus('error', `Server error ${resp.status}: ${err.error || resp.statusText}`);
+          }
+          return;
+        }
+        data = await resp.json();
+      } catch (e) {
+        setStatus('error', `Failed to fetch /api/solve: ${e.message}`);
+        return;
+      }
+
+      const strats = data.strategies || {};
+
+      // Render push grids
+      const pushMap = {
+        'push_co':       ['push-co-grid',  'push-co-summary'],
+        'push_btn_open': ['push-btn-grid', 'push-btn-summary'],
+        'push_sb_open':  ['push-sb-grid',  'push-sb-summary'],
+      };
+      for (const [key, [gridId, sumId]] of Object.entries(pushMap)) {
+        const d = strats[key] || {};
+        renderGrid(gridId, d);
+        document.getElementById(sumId).textContent = summarizeStrategy(d, 'Push');
+      }
+
+      // Render call grids
+      buildCallPanels(strats);
+
+      const meta = data.metadata || {};
+      const iters = meta.iterations != null ? meta.iterations : '?';
+      const expl  = meta.exploitability != null ? meta.exploitability.toFixed(4) : '?';
+      setStatus('ok',
+        `Nash solution loaded — ${iters} iterations, exploitability ${expl} bb`);
+    }
+
+    // Kick off on page load
+    loadNash();
+  </script>
+</body>
+</html>

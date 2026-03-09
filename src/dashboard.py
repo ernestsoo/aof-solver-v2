@@ -8,7 +8,7 @@ are added to every response for local development.
 import os
 
 import numpy as np
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, render_template, request
 
 from src.equity import load_equity_matrix
 from src.hands import (
@@ -78,6 +78,15 @@ def _matrix_unavailable():
 
 
 # ---------------------------------------------------------------------------
+# Root page
+# ---------------------------------------------------------------------------
+
+@app.route("/", methods=["GET"])
+def index():
+    """Serve the dashboard SPA."""
+    return render_template("index.html")
+
+
 # Health endpoint (always available)
 # ---------------------------------------------------------------------------
 

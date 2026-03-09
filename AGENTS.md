@@ -838,14 +838,37 @@ _(agent fills in after completing)_
 ## Phase 6: Dashboard Frontend (`templates/index.html`)
 
 ### 6.1 — Page layout and grid renderer
-- [ ] Create `templates/index.html`
-- [ ] Dark theme, single page, vanilla JS
-- [ ] `renderGrid(containerId, strategyData)` — draw 13x13 grid with color coding
-- [ ] Green = push/call, red = fold, intensity by probability
-- [ ] CSS grid: ~30px cells, monospace font, clear borders
+- [x] Create `templates/index.html`
+- [x] Dark theme, single page, vanilla JS
+- [x] `renderGrid(containerId, strategyData)` — draw 13x13 grid with color coding
+- [x] Green = push/call, red = fold, intensity by probability
+- [x] CSS grid: ~30px cells, monospace font, clear borders
 
 **Notes:**
-_(agent fills in after completing)_
+Created `templates/index.html` (vanilla JS, dark theme, no frameworks). Also added `GET /`
+route to `src/dashboard.py` (imports `render_template` and serves `index.html`). All 102
+existing dashboard tests still pass.
+
+**Key JS functions:**
+- `renderGrid(containerId, strategyData)` — clears container, builds 13×13 CSS grid of 30px
+  cells; each cell background is `probToColor(prob)` (linear red→green interpolation); cell
+  text is the hand name; hover tooltip shows "XX: N%".
+- `gridToHand(row, col) -> string` — JS port of `grid_to_hand`: row==col→pair, row<col→suited,
+  row>col→offsuit. Matches Python logic exactly.
+- `probToColor(prob) -> string` — linear interpolation: 0.0=#ef4444 (red), 1.0=#22c55e (green).
+- `summarizeStrategy(strategyData, verb) -> string` — "Push X.X% (Y combos)" line.
+- `buildCallPanels(strategies)` — creates panels for all 11 call strategies using CALL_LABELS map.
+- `loadNash()` — async; fetches `/api/solve`, renders 3 push grids + 11 call grids, shows
+  status banner (loading/ok/error).
+
+**Page structure:**
+- Header: "AoF Nash Solver" title + subtitle
+- Status banner (loading spinner / ok / error)
+- Push Ranges section: CO / BTN open / SB open / BB-uncontested placeholder, each with
+  push% summary line
+- Call Ranges section: 11 call grids in a flex-wrap row, each with call% summary line
+- Legend (green/red swatches)
+- Responsive: wraps to column on narrow screens
 
 ### 6.2 — Nash push range display
 - [ ] Fetch `/api/solve` on page load
