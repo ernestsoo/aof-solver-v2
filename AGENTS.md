@@ -679,14 +679,21 @@ All imports from `src.solver` (reuses all EV functions, `_FOLD_EV`, `_EV_FUNCTIO
 164 tests pass, 1 skipped (no equity matrix). No new tests added (task 4.3).
 
 ### 4.2 — Exploitability for nodelock
-- [ ] Reuse `compute_exploitability()` from solver.py
-- [ ] `compare_vs_nash(nash_result, nodelock_result) -> dict` — EV difference per position
+- [x] Reuse `compute_exploitability()` from solver.py
+- [x] `compare_vs_nash(nash_result, nodelock_result) -> dict` — EV difference per position
 
 **Notes:**
-_(agent fills in after completing)_
+Added `compare_vs_nash(nash_result: SolverResult, nodelock_result: SolverResult) -> dict`
+to `src/nodelock.py`.
+
+- Returns one key per STRATEGY_NAMES entry (14 total): `float(np.mean(nl_ev[s] - nash_ev[s]))` for each strategy s.
+- Returns three summary keys: `exploitability_nash`, `exploitability_nodelock`, `exploitability_delta` (nodelock minus nash).
+- Gracefully handles missing ev_table entries (returns 0.0 rather than raising).
+- `compute_exploitability` already imported from solver.py and used in `nodelock_solve` — no changes needed there.
+- Created `tests/test_nodelock.py` with 17 lightweight tests (no equity matrix needed). All 17 pass.
 
 ### 4.3 — Tests for nodelock `[!]`
-- [ ] Create `tests/test_nodelock.py`
+- [x] Create `tests/test_nodelock.py`
 - [ ] Test with real matrix: locking all to Nash = no change
 - [ ] Test: locking wider -> opponents call tighter
 - [ ] Test: exploitability(nash) ~ 0, exploitability(nodelock) > 0 if lock deviates

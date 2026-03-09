@@ -224,6 +224,52 @@ def lock_from_range_pct(pct: float, combo_weights: np.ndarray) -> np.ndarray:
     return top_n_percent(pct)
 
 
+def compare_vs_nash(
+    nash_result: "SolverResult",
+    nodelock_result: "SolverResult",
+) -> dict:
+    """Compare a nodelocked result against the Nash baseline.
+
+    For each of the 14 strategy names, computes the mean EV difference
+    (nodelock minus Nash) across all 169 hands.  Also includes top-level
+    exploitability scalars and their delta.
+
+    Args:
+        nash_result:      SolverResult from solve_nash (the baseline).
+        nodelock_result:  SolverResult from nodelock_solve.
+
+    Returns:
+        dict with keys:
+          - One key per STRATEGY_NAMES entry (str -> float), value is
+            np.mean(nodelock_ev[s] - nash_ev[s]) for each strategy s.
+          - "exploitability_nash"     : float — exploitability of the Nash result.
+          - "exploitability_nodelock" : float — exploitability of the nodelock result.
+          - "exploitability_delta"    : float — nodelock minus Nash exploitability.
+
+    Notes:
+        If a strategy is missing from one of the ev_tables (e.g. because the
+        result was built without a full ev_table), the diff for that strategy
+        is set to 0.0 rather than raising an error.
+    """
+    result: dict = {}
+
+    for name in STRATEGY_NAMES:
+        nash_ev = nash_result.ev_table.get(name)
+        nl_ev = nodelock_result.ev_table.get(name)
+        if nash_ev is None or nl_ev is None:
+            result[name] = 0.0
+        else:
+            result[name] = float(np.mean(nl_ev - nash_ev))
+
+    result["exploitability_nash"] = float(nash_result.exploitability)
+    result["exploitability_nodelock"] = float(nodelock_result.exploitability)
+    result["exploitability_delta"] = float(
+        nodelock_result.exploitability - nash_result.exploitability
+    )
+
+    return result
+
+
 def lock_from_hands(hands: list[str]) -> np.ndarray:
     """Convert a list of hand name strings to a (169,) binary mask.
 
