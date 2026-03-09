@@ -6,6 +6,11 @@ are added to every response for local development.
 """
 
 import os
+import sys
+
+# Ensure repo root is on sys.path so `src.*` imports work when running
+# this file directly (e.g. `python src/dashboard.py` from repo root).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 from flask import Flask, jsonify, render_template, request
