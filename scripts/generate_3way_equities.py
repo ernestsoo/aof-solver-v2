@@ -408,7 +408,7 @@ def main() -> None:
     # parent received a single result — appearing as a 13+ hour hang on Linux
     # and a 70+ hour "hang" on Windows.  IPC overhead at chunksize=1 is ~1 ms
     # per triplet (< 0.05 % of task time), so there is no throughput cost.
-    chunksize = 1
+    chunksize = 20  # balance between IPC overhead and result streaming latency
     print(f"Using chunksize={chunksize} for {len(args_list):,} remaining triplets\n")
 
     with mp.Pool(N_WORKERS, initializer=_init_worker) as pool:
