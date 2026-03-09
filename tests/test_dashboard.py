@@ -79,12 +79,12 @@ class TestHealthEndpoint:
 # ---------------------------------------------------------------------------
 
 class TestMatrixMissing503:
+    # /api/range does NOT guard on matrix — excluded from these tests.
     @pytest.mark.parametrize("url,method", [
         ("/api/solve", "GET"),
         ("/api/nodelock", "POST"),
         ("/api/hand_equity", "GET"),
         ("/api/hand_info", "GET"),
-        ("/api/range", "GET"),
     ])
     def test_returns_503_when_matrix_missing(self, client_no_matrix, url, method):
         if method == "GET":
@@ -98,7 +98,6 @@ class TestMatrixMissing503:
         ("/api/nodelock", "POST"),
         ("/api/hand_equity", "GET"),
         ("/api/hand_info", "GET"),
-        ("/api/range", "GET"),
     ])
     def test_503_body_contains_error_key(self, client_no_matrix, url, method):
         if method == "GET":
@@ -113,7 +112,6 @@ class TestMatrixMissing503:
         ("/api/nodelock", "POST"),
         ("/api/hand_equity", "GET"),
         ("/api/hand_info", "GET"),
-        ("/api/range", "GET"),
     ])
     def test_503_body_has_matrix_loaded_false(self, client_no_matrix, url, method):
         if method == "GET":
@@ -124,22 +122,6 @@ class TestMatrixMissing503:
         assert data.get("matrix_loaded") is False
 
 
-# ---------------------------------------------------------------------------
-# Stub endpoints return 501  (excludes /api/solve — now implemented)
-# ---------------------------------------------------------------------------
-
-class TestStubEndpoints501:
-    @pytest.mark.parametrize("url,method", [
-        ("/api/hand_equity", "GET"),
-        ("/api/hand_info", "GET"),
-        ("/api/range", "GET"),
-    ])
-    def test_stubs_return_501_when_matrix_present(self, client, url, method):
-        if method == "GET":
-            resp = client.get(url)
-        else:
-            resp = client.post(url, json={})
-        assert resp.status_code == 501
 
 
 # ---------------------------------------------------------------------------
@@ -463,3 +445,244 @@ class TestNodelockEndpoint:
         assert abs(cmp["exploitability_nash"] - 0.0012) < 1e-9
         assert abs(cmp["exploitability_nodelock"] - 0.05) < 1e-9
         assert abs(cmp["exploitability_delta"] - 0.0488) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# /api/hand_equity — task 5.4
+# ---------------------------------------------------------------------------
+
+# Fake 169x169 equity matrix: 0.6 everywhere, diagonal 0 (hand vs itself).
+_FAKE_MATRIX = np.full((169, 169), 0.6, dtype=np.float32)
+np.fill_diagonal(_FAKE_MATRIX, 0.0)
+
+
+class TestHandEquityEndpoint:
+    @pytest.fixture
+    def client_eq(self):
+        with patch("src.dashboard.matrix_loaded", True), \
+             patch("src.dashboard.equity_matrix", _FAKE_MATRIX):
+            yield app.test_client()
+
+    # --- 503 ---
+
+    def test_503_when_no_matrix(self, client_no_matrix):
+        resp = client_no_matrix.get("/api/hand_equity?hand=AKs&vs=top30")
+        assert resp.status_code == 503
+
+    # --- 400 bad params ---
+
+    def test_400_missing_hand(self, client_eq):
+        resp = client_eq.get("/api/hand_equity?vs=top30")
+        assert resp.status_code == 400
+
+    def test_400_missing_vs(self, client_eq):
+        resp = client_eq.get("/api/hand_equity?hand=AKs")
+        assert resp.status_code == 400
+
+    def test_400_unknown_hand(self, client_eq):
+        resp = client_eq.get("/api/hand_equity?hand=BADHAND&vs=top30")
+        assert resp.status_code == 400
+
+    def test_400_invalid_topn(self, client_eq):
+        resp = client_eq.get("/api/hand_equity?hand=AKs&vs=topXYZ")
+        assert resp.status_code == 400
+
+    def test_400_empty_range(self, client_eq):
+        # top0 produces empty range
+        resp = client_eq.get("/api/hand_equity?hand=AKs&vs=top0")
+        assert resp.status_code == 400
+
+    # --- 200 success ---
+
+    def test_200_topn(self, client_eq):
+        resp = client_eq.get("/api/hand_equity?hand=AKs&vs=top30")
+        assert resp.status_code == 200
+
+    def test_200_range_notation(self, client_eq):
+        resp = client_eq.get("/api/hand_equity?hand=AA&vs=22%2B")  # "22+" URL-encoded
+        assert resp.status_code == 200
+
+    def test_response_has_required_keys(self, client_eq):
+        data = json.loads(client_eq.get("/api/hand_equity?hand=AKs&vs=top30").data)
+        assert "hand" in data
+        assert "vs_range" in data
+        assert "equity" in data
+        assert "vs_count" in data
+
+    def test_hand_field_matches_param(self, client_eq):
+        data = json.loads(client_eq.get("/api/hand_equity?hand=AKs&vs=top30").data)
+        assert data["hand"] == "AKs"
+
+    def test_equity_is_float(self, client_eq):
+        data = json.loads(client_eq.get("/api/hand_equity?hand=AKs&vs=top30").data)
+        assert isinstance(data["equity"], float)
+
+    def test_vs_count_matches_vs_range_length(self, client_eq):
+        data = json.loads(client_eq.get("/api/hand_equity?hand=AKs&vs=top30").data)
+        assert data["vs_count"] == len(data["vs_range"])
+
+    def test_vs_range_is_list_of_strings(self, client_eq):
+        data = json.loads(client_eq.get("/api/hand_equity?hand=AKs&vs=top30").data)
+        assert isinstance(data["vs_range"], list)
+        assert all(isinstance(h, str) for h in data["vs_range"])
+
+    def test_equity_in_valid_range(self, client_eq):
+        data = json.loads(client_eq.get("/api/hand_equity?hand=AKs&vs=top30").data)
+        assert 0.0 <= data["equity"] <= 1.0
+
+    def test_topn_percent_notation(self, client_eq):
+        resp = client_eq.get("/api/hand_equity?hand=AKs&vs=top30%25")  # "top30%"
+        assert resp.status_code == 200
+
+    def test_range_notation_vs(self, client_eq):
+        resp = client_eq.get("/api/hand_equity?hand=AKs&vs=TT%2B%2CAKs")  # "TT+,AKs"
+        assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# /api/hand_info — task 5.4
+# ---------------------------------------------------------------------------
+
+class TestHandInfoEndpoint:
+    @pytest.fixture
+    def client_hi(self):
+        with patch("src.dashboard.matrix_loaded", True):
+            yield app.test_client()
+
+    # --- 503 ---
+
+    def test_503_when_no_matrix(self, client_no_matrix):
+        resp = client_no_matrix.get("/api/hand_info?hand=AKs")
+        assert resp.status_code == 503
+
+    # --- 400 ---
+
+    def test_400_missing_hand(self, client_hi):
+        resp = client_hi.get("/api/hand_info")
+        assert resp.status_code == 400
+
+    def test_400_unknown_hand(self, client_hi):
+        resp = client_hi.get("/api/hand_info?hand=ZZZZ")
+        assert resp.status_code == 400
+
+    # --- 200 ---
+
+    def test_200_known_hand(self, client_hi):
+        resp = client_hi.get("/api/hand_info?hand=AA")
+        assert resp.status_code == 200
+
+    def test_response_has_required_keys(self, client_hi):
+        data = json.loads(client_hi.get("/api/hand_info?hand=AA").data)
+        for key in ("hand", "rank", "percentile", "combos", "hand_type"):
+            assert key in data
+
+    def test_aa_rank_is_1(self, client_hi):
+        data = json.loads(client_hi.get("/api/hand_info?hand=AA").data)
+        assert data["rank"] == 1
+
+    def test_72o_rank_is_169(self, client_hi):
+        data = json.loads(client_hi.get("/api/hand_info?hand=72o").data)
+        assert data["rank"] == 169
+
+    def test_aa_percentile_is_100(self, client_hi):
+        data = json.loads(client_hi.get("/api/hand_info?hand=AA").data)
+        assert abs(data["percentile"] - 100.0) < 0.01
+
+    def test_72o_percentile_is_0(self, client_hi):
+        data = json.loads(client_hi.get("/api/hand_info?hand=72o").data)
+        assert abs(data["percentile"] - 0.0) < 0.01
+
+    def test_pair_combos_is_6(self, client_hi):
+        data = json.loads(client_hi.get("/api/hand_info?hand=AA").data)
+        assert data["combos"] == 6
+        assert data["hand_type"] == "pair"
+
+    def test_suited_combos_is_4(self, client_hi):
+        data = json.loads(client_hi.get("/api/hand_info?hand=AKs").data)
+        assert data["combos"] == 4
+        assert data["hand_type"] == "suited"
+
+    def test_offsuit_combos_is_12(self, client_hi):
+        data = json.loads(client_hi.get("/api/hand_info?hand=AKo").data)
+        assert data["combos"] == 12
+        assert data["hand_type"] == "offsuit"
+
+    def test_hand_field_matches_param(self, client_hi):
+        data = json.loads(client_hi.get("/api/hand_info?hand=TT").data)
+        assert data["hand"] == "TT"
+
+
+# ---------------------------------------------------------------------------
+# /api/range — task 5.4
+# ---------------------------------------------------------------------------
+
+class TestRangeEndpoint:
+    # No matrix guard — use plain client fixture (matrix_loaded=True)
+    # but also verify it works with client_no_matrix.
+
+    def test_no_503_when_matrix_missing(self, client_no_matrix):
+        resp = client_no_matrix.get("/api/range?notation=AA")
+        assert resp.status_code != 503
+
+    # --- 400 ---
+
+    def test_400_missing_notation(self, client):
+        resp = client.get("/api/range")
+        assert resp.status_code == 400
+
+    def test_400_empty_notation(self, client):
+        resp = client.get("/api/range?notation=")
+        assert resp.status_code == 400
+
+    # --- 200 ---
+
+    def test_200_single_hand(self, client):
+        resp = client.get("/api/range?notation=AA")
+        assert resp.status_code == 200
+
+    def test_200_pair_plus(self, client):
+        resp = client.get("/api/range?notation=TT%2B")  # "TT+"
+        assert resp.status_code == 200
+
+    def test_200_complex_notation(self, client):
+        resp = client.get("/api/range?notation=22%2B%2CA2s%2B")  # "22+,A2s+"
+        assert resp.status_code == 200
+
+    def test_response_has_required_keys(self, client):
+        data = json.loads(client.get("/api/range?notation=AA").data)
+        for key in ("notation", "hands", "count", "combo_count"):
+            assert key in data
+
+    def test_notation_field_preserved(self, client):
+        data = json.loads(client.get("/api/range?notation=AA").data)
+        assert data["notation"] == "AA"
+
+    def test_hands_is_list_of_strings(self, client):
+        data = json.loads(client.get("/api/range?notation=AA").data)
+        assert isinstance(data["hands"], list)
+        assert all(isinstance(h, str) for h in data["hands"])
+
+    def test_count_matches_hands_length(self, client):
+        data = json.loads(client.get("/api/range?notation=TT%2B").data)
+        assert data["count"] == len(data["hands"])
+
+    def test_aa_single_hand(self, client):
+        data = json.loads(client.get("/api/range?notation=AA").data)
+        assert data["hands"] == ["AA"]
+        assert data["count"] == 1
+        assert data["combo_count"] == 6
+
+    def test_pair_plus_includes_all_pairs(self, client):
+        data = json.loads(client.get("/api/range?notation=22%2B").data)
+        assert "AA" in data["hands"]
+        assert "22" in data["hands"]
+        assert data["count"] == 13
+
+    def test_combo_count_is_integer(self, client):
+        data = json.loads(client.get("/api/range?notation=AA").data)
+        assert isinstance(data["combo_count"], int)
+
+    def test_random_returns_169_hands(self, client):
+        data = json.loads(client.get("/api/range?notation=random").data)
+        assert data["count"] == 169
+        assert data["combo_count"] == 1326

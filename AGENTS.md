@@ -804,12 +804,28 @@ started, no importlib.reload. Full suite: **218 passed, 1 skipped in 1.26s** ✓
   - `nodelock() -> Response` at `POST /api/nodelock`
 
 ### 5.4 — Utility endpoints
-- [ ] `/api/hand_equity?hand=AKs&vs=top30` — equity lookup
-- [ ] `/api/hand_info?hand=AKs` — rank, percentile, combos
-- [ ] `/api/range?notation=22+,A2s+` — expand to hand list
+- [x] `/api/hand_equity?hand=AKs&vs=top30` — equity lookup
+- [x] `/api/hand_info?hand=AKs` — rank, percentile, combos
+- [x] `/api/range?notation=22+,A2s+` — expand to hand list
 
 **Notes:**
-_(agent fills in after completing)_
+Implemented all three endpoints in `src/dashboard.py`. Added a `_parse_vs_param` helper
+that handles both `topN`/`topN%` notation (via `top_n_percent`) and range strings (via
+`parse_range`). Added imports: `HAND_MAP`, `mask_to_hands`, `top_n_percent`.
+
+`/api/range` has no 503 guard (does not need matrix); the existing `TestMatrixMissing503`
+parametrize list was updated to exclude `/api/range`. Removed `TestStubEndpoints501` class
+(stubs gone). Added three new test classes: `TestHandEquityEndpoint`,
+`TestHandInfoEndpoint`, `TestRangeEndpoint` (37 new tests). All 290 tests pass.
+
+Function signatures:
+- `_parse_vs_param(vs: str) -> tuple[np.ndarray, list[str]]`
+- `hand_equity() -> Response` — `GET /api/hand_equity?hand=<name>&vs=<top30|notation>`
+  Returns `{"hand", "vs_range", "equity", "vs_count"}`
+- `hand_info() -> Response` — `GET /api/hand_info?hand=<name>`
+  Returns `{"hand", "rank", "percentile", "combos", "hand_type"}`
+- `range_expand() -> Response` — `GET /api/range?notation=<str>`
+  Returns `{"notation", "hands", "count", "combo_count"}`
 
 ### 5.5 — Dashboard tests `[!]`
 - [ ] All need Flask running + equity matrix — mark `[!]`

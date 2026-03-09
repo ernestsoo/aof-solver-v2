@@ -11,7 +11,15 @@ import numpy as np
 from flask import Flask, jsonify, request
 
 from src.equity import load_equity_matrix
-from src.hands import COMBO_WEIGHTS, HAND_NAMES, parse_range, range_to_mask
+from src.hands import (
+    COMBO_WEIGHTS,
+    HAND_MAP,
+    HAND_NAMES,
+    mask_to_hands,
+    parse_range,
+    range_to_mask,
+    top_n_percent,
+)
 from src.nodelock import compare_vs_nash, lock_from_range_pct, nodelock_solve
 from src.solver import STRATEGY_NAMES, SolverResult, solve_nash
 
@@ -222,37 +230,138 @@ def nodelock():
     }), 200
 
 
+def _parse_vs_param(vs: str) -> tuple[np.ndarray, list[str]]:
+    """Parse a vs= query param into (mask, hand_names).
+
+    Accepts:
+    - "topN" or "topN%" (e.g. "top30", "top30%"): top-N% by strength.
+    - Range notation (e.g. "22+,A2s+"): parsed via parse_range.
+
+    Raises ValueError on invalid input.
+    """
+    vs = vs.strip()
+    low = vs.lower()
+    if low.startswith("top"):
+        num_str = low[3:].rstrip("%").strip()
+        try:
+            pct = float(num_str)
+        except ValueError:
+            raise ValueError(f"Invalid top-N notation: {vs!r}")
+        if not (0.0 <= pct <= 100.0):
+            raise ValueError(f"Percentage must be 0–100, got {pct}")
+        mask = top_n_percent(pct)
+        hands = mask_to_hands(mask)
+        return mask, hands
+    else:
+        hands = parse_range(vs)
+        mask = range_to_mask(hands)
+        return mask, hands
+
+
 @app.route("/api/hand_equity", methods=["GET"])
 def hand_equity():
-    """GET /api/hand_equity?hand=AKs&vs=top30 — equity lookup.
+    """GET /api/hand_equity?hand=AKs&vs=top30 — equity of one hand vs a range.
 
-    Stub: returns 501 Not Implemented (task 5.4).
+    Returns:
+        200 JSON: {"hand", "vs_range", "equity", "vs_count"}
+        400 JSON: missing/invalid params.
+        503 JSON: matrix not loaded.
     """
     if not matrix_loaded:
         return _matrix_unavailable()
-    return jsonify({"error": "Not implemented"}), 501
+
+    hand_name = request.args.get("hand", "").strip()
+    vs_param = request.args.get("vs", "").strip()
+
+    if not hand_name:
+        return jsonify({"error": "Bad request", "detail": "Missing 'hand' param"}), 400
+    if hand_name not in HAND_MAP:
+        return jsonify({"error": "Bad request", "detail": f"Unknown hand: {hand_name!r}"}), 400
+    if not vs_param:
+        return jsonify({"error": "Bad request", "detail": "Missing 'vs' param"}), 400
+
+    try:
+        vs_mask, vs_hands = _parse_vs_param(vs_param)
+    except ValueError as exc:
+        return jsonify({"error": "Bad request", "detail": str(exc)}), 400
+
+    if not vs_hands:
+        return jsonify({"error": "Bad request", "detail": f"'vs' param matched no hands: {vs_param!r}"}), 400
+
+    hand_idx = HAND_MAP[hand_name].index
+    weighted = vs_mask * COMBO_WEIGHTS
+    total = float(weighted.sum())
+    if total == 0.0:
+        equity = 0.0
+    else:
+        equity = float(np.dot(equity_matrix[hand_idx], weighted) / total)
+
+    return jsonify({
+        "hand": hand_name,
+        "vs_range": vs_hands,
+        "equity": round(equity, 6),
+        "vs_count": len(vs_hands),
+    }), 200
 
 
 @app.route("/api/hand_info", methods=["GET"])
 def hand_info():
-    """GET /api/hand_info?hand=AKs — rank, percentile, combos.
+    """GET /api/hand_info?hand=AKs — rank, percentile, and combo info.
 
-    Stub: returns 501 Not Implemented (task 5.4).
+    Returns:
+        200 JSON: {"hand", "rank", "percentile", "combos", "hand_type"}
+        400 JSON: missing/unknown hand.
+        503 JSON: matrix not loaded (consistency guard).
     """
     if not matrix_loaded:
         return _matrix_unavailable()
-    return jsonify({"error": "Not implemented"}), 501
+
+    hand_name = request.args.get("hand", "").strip()
+    if not hand_name:
+        return jsonify({"error": "Bad request", "detail": "Missing 'hand' param"}), 400
+    if hand_name not in HAND_MAP:
+        return jsonify({"error": "Bad request", "detail": f"Unknown hand: {hand_name!r}"}), 400
+
+    info = HAND_MAP[hand_name]
+    percentile = round((169 - info.rank) / 168 * 100, 2)
+    return jsonify({
+        "hand": hand_name,
+        "rank": info.rank,
+        "percentile": percentile,
+        "combos": info.combos,
+        "hand_type": info.hand_type,
+    }), 200
 
 
 @app.route("/api/range", methods=["GET"])
 def range_expand():
     """GET /api/range?notation=22+,A2s+ — expand range notation to hand list.
 
-    Stub: returns 501 Not Implemented (task 5.4).
+    Does not require the equity matrix.
+
+    Returns:
+        200 JSON: {"notation", "hands", "count", "combo_count"}
+        400 JSON: missing or empty notation.
     """
-    if not matrix_loaded:
-        return _matrix_unavailable()
-    return jsonify({"error": "Not implemented"}), 501
+    notation = request.args.get("notation", "").strip()
+    if not notation:
+        return jsonify({"error": "Bad request", "detail": "Missing 'notation' param"}), 400
+
+    try:
+        hands = parse_range(notation)
+    except Exception as exc:
+        return jsonify({"error": "Bad request", "detail": f"Invalid notation: {exc}"}), 400
+
+    if not hands:
+        return jsonify({"error": "Bad request", "detail": f"Notation matched no hands: {notation!r}"}), 400
+
+    combo_count = sum(HAND_MAP[h].combos for h in hands)
+    return jsonify({
+        "notation": notation,
+        "hands": hands,
+        "count": len(hands),
+        "combo_count": combo_count,
+    }), 200
 
 
 # ---------------------------------------------------------------------------
