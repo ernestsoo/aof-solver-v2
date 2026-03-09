@@ -22,7 +22,6 @@ import time
 import multiprocessing as mp
 
 import numpy as np
-from phevaluator.evaluator import Card, _evaluate_cards  # integer API avoids string parsing overhead
 
 # ---------------------------------------------------------------------------
 # Bootstrap project root
@@ -57,11 +56,27 @@ CARD_TO_IDX: dict[str, int] = {
     for si, s in enumerate(SUITS)
 }
 
-# Integer card IDs for phevaluator's internal _evaluate_cards(*ints) API.
-# Using integer IDs instead of string-parsed cards avoids repeated string
-# parsing inside the hot Monte Carlo loop — gives ~1.5x speedup at N=5000.
-CARD_TO_ID: dict[str, int] = {c: Card(c).id_ for c in ALL_CARDS}
-ALL_IDS: list[int] = [CARD_TO_ID[c] for c in ALL_CARDS]
+# Integer card IDs and evaluator are populated by _init_worker() in each
+# subprocess — see the comment there for why we defer the phevaluator import.
+CARD_TO_ID: dict[str, int] = {}
+ALL_IDS: list[int] = []
+_evaluate_cards = None  # set by _init_worker()
+
+
+def _init_worker() -> None:
+    """Import phevaluator and build card-ID tables inside each worker process.
+
+    Deferring the import avoids Windows spawn problems:
+      - Simultaneous .pyc-cache contention when 6+ workers spawn at once and
+        all try to write __pycache__ files for phevaluator's large lookup-table
+        modules (hashtable7.py = 6 154 lines).
+      - The main process never calls _evaluate_cards, so it pays no import cost.
+    """
+    global CARD_TO_ID, ALL_IDS, _evaluate_cards
+    from phevaluator.evaluator import Card, _evaluate_cards as _phe_eval
+    CARD_TO_ID = {c: Card(c).id_ for c in ALL_CARDS}
+    ALL_IDS = [CARD_TO_ID[c] for c in ALL_CARDS]
+    _evaluate_cards = _phe_eval
 
 
 # ---------------------------------------------------------------------------
@@ -182,8 +197,12 @@ def main() -> None:
     done = start_done
     t_start = time.time()
 
-    with mp.Pool(N_WORKERS) as pool:
-        for i, j, eq in pool.imap_unordered(_worker, remaining_pairs, chunksize=50):
+    # chunksize=1: each matchup (~2-6 s each) is its own task so results stream
+    # back immediately.  The old chunksize=50 caused a ~300 s delay before the
+    # first result on Linux (and ~1500 s on Windows), making the script appear
+    # to hang.  IPC overhead at chunksize=1 is negligible vs. task duration.
+    with mp.Pool(N_WORKERS, initializer=_init_worker) as pool:
+        for i, j, eq in pool.imap_unordered(_worker, remaining_pairs, chunksize=1):
             matrix[i][j] = float(eq)
             matrix[j][i] = 1.0 - float(eq)
             done += 1

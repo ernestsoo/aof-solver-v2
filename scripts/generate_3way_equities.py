@@ -42,7 +42,6 @@ import time
 from itertools import combinations
 
 import numpy as np
-from phevaluator.evaluator import Card, _evaluate_cards  # integer API avoids string parsing overhead
 
 # ---------------------------------------------------------------------------
 # Bootstrap project root so `src` imports work regardless of invocation style
@@ -90,11 +89,40 @@ CARD_TO_IDX: dict[str, int] = {
     for si, s in enumerate(SUITS)
 }
 
-# Integer card IDs for phevaluator's internal _evaluate_cards(*ints) API.
-# Using integer IDs instead of string-parsed cards avoids repeated string
-# parsing inside the hot Monte Carlo loop — gives ~2x speedup.
-CARD_TO_ID: dict[str, int] = {c: Card(c).id_ for c in ALL_CARDS}
-ALL_IDS: list[int] = [CARD_TO_ID[c] for c in ALL_CARDS]
+# Integer card IDs and the evaluator function are populated by _init_worker()
+# in each subprocess.  Keeping them out of the module-level import avoids two
+# Windows spawn problems:
+#
+#   1. Simultaneous .pyc-cache writes: on Windows, Python uses exclusive file
+#      locks when creating __pycache__/*.pyc files.  When 6+ workers spawn at
+#      the same moment and all try to import phevaluator's large lookup-table
+#      modules (hashtable7.py = 6 154 lines), they contend on the same cache
+#      files and can deadlock indefinitely.
+#
+#   2. The main process never calls _evaluate_cards directly, so there is no
+#      reason to pay the import cost in the parent.
+#
+# On Linux (fork), _init_worker() is still called but is cheap because the
+# module was already imported and .pyc files already exist.
+CARD_TO_ID: dict[str, int] = {}
+ALL_IDS: list[int] = []
+_evaluate_cards = None  # set by _init_worker() in each worker subprocess
+
+
+def _init_worker() -> None:
+    """Import phevaluator and build card-ID tables inside each worker process.
+
+    Called once per worker by mp.Pool(initializer=_init_worker).  By deferring
+    the import to here (rather than module-top-level), workers finish their
+    event-loop handshake with the Pool *before* importing phevaluator, so the
+    parent's Pool.imap_unordered() call returns immediately even if the import
+    takes a few seconds.
+    """
+    global CARD_TO_ID, ALL_IDS, _evaluate_cards
+    from phevaluator.evaluator import Card, _evaluate_cards as _phe_eval
+    CARD_TO_ID = {c: Card(c).id_ for c in ALL_CARDS}
+    ALL_IDS = [CARD_TO_ID[c] for c in ALL_CARDS]
+    _evaluate_cards = _phe_eval
 
 
 # ---------------------------------------------------------------------------
@@ -370,11 +398,20 @@ def main() -> None:
 
     print(f"Starting {N_WORKERS} worker processes...\n")
 
-    # Larger chunksize reduces IPC round-trips on Windows (spawn start method).
-    chunksize = max(50, len(args_list) // (N_WORKERS * 8))
+    # chunksize=1: each triplet is dispatched as its own task and results stream
+    # back one-by-one.  This is the correct choice for tasks that take 2-15+
+    # seconds each (phevaluator is pure Python — no C extension).
+    #
+    # The old formula  max(50, N // (N_WORKERS*8))  produced values like 16 000+
+    # for a full run.  With tasks taking ~3 s on Linux / ~15 s on Windows,
+    # that meant workers had to finish an entire 16 000-item batch before the
+    # parent received a single result — appearing as a 13+ hour hang on Linux
+    # and a 70+ hour "hang" on Windows.  IPC overhead at chunksize=1 is ~1 ms
+    # per triplet (< 0.05 % of task time), so there is no throughput cost.
+    chunksize = 1
     print(f"Using chunksize={chunksize} for {len(args_list):,} remaining triplets\n")
 
-    with mp.Pool(N_WORKERS) as pool:
+    with mp.Pool(N_WORKERS, initializer=_init_worker) as pool:
         for result in pool.imap_unordered(
             compute_triplet_equity, args_list, chunksize=chunksize
         ):
