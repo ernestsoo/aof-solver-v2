@@ -58,10 +58,10 @@ from src.hands import ALL_HANDS, HandInfo, RANKS, SUITS
 
 # Monte Carlo board samples per valid specific combo triple.
 # 500 gives acceptable accuracy (~1-2% error) with reasonable speed.
-N_BOARDS: int = 500
+N_BOARDS: int = 200
 
 # Number of parallel worker processes — set to your machine's thread count.
-N_WORKERS: int = 6  # 6 is more stable on Windows spawn; bump to 12 on Linux/Mac
+N_WORKERS: int = 12  # 6 is more stable on Windows spawn; bump to 12 on Linux/Mac
 
 # Save a checkpoint every this many triplets so the run can be resumed.
 CHECKPOINT_INTERVAL: int = 10_000
@@ -220,10 +220,12 @@ def compute_triplet_equity(
                 cj0, cj1 = CARD_TO_ID[cj[0]], CARD_TO_ID[cj[1]]
                 ck0, ck1 = CARD_TO_ID[ck[0]], CARD_TO_ID[ck[1]]
 
-                # Sample all n_boards boards at once; index into rem_arr
-                boards_arr = np.array(
-                    [rem_arr[rng.choice(n_rem, 5, replace=False)] for _ in range(n_boards)]
-                )  # (n_boards, 5)
+                # Sample all n_boards boards at once — fully vectorized, no Python loop.
+                # rng.random((n_boards, n_rem)) produces random floats; argsort gives
+                # random permutations of [0, n_rem); taking first 5 columns = 5 cards
+                # without replacement per row.
+                perm = np.argsort(rng.random((n_boards, n_rem)), axis=1)[:, :5]
+                boards_arr = rem_arr[perm]  # (n_boards, 5)
 
                 # Evaluate all boards with integer API — ~2x faster than string API
                 sc_i = np.array([_evaluate_cards(ci0, ci1, *row) for row in boards_arr])
