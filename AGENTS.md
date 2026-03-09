@@ -947,12 +947,35 @@ is strictly more useful and matches "or add a toggle to switch between Nash and 
 which was also listed in the task description.
 
 ### 6.5 — Nash vs exploitative comparison
-- [ ] Toggle: side-by-side view
-- [ ] Highlight differences: green border = added, red = removed vs Nash
-- [ ] EV change summary per position
+- [x] Toggle: side-by-side view
+- [x] Highlight differences: green border = added, red = removed vs Nash
+- [x] EV change summary per position
 
 **Notes:**
-_(agent fills in after completing)_
+All changes in `templates/index.html` only (no backend changes). 290 pytest passed, 1 skipped.
+
+**What changed:**
+- Added "Compare" button as 3rd button in `#view-toggle-bar`.
+- Fixed CSS: `.view-btn:first-child` → `.view-btn:not(:last-child)` so middle button also gets right border.
+- Added `#comparison-section` div (hidden by default) placed between call-section and nodelock-section. Contains:
+  - `#comp-expl-banner` — exploitability comparison row (Nash vs Exploitative bb, delta)
+  - Diff legend (green outline = added, red outline = removed)
+  - `#comp-push-col` — 3 positions (CO, BTN, SB) stacked vertically, each showing Nash grid and Exploitative grid side-by-side with diff highlights
+  - Call comparison: `#comp-call-select` dropdown + `#comp-call-row` (Nash + Expl grids) + `#comp-call-ev` (EV delta chip)
+- Modified `showView(view)` to handle `'compare'` case: hides push/call sections, shows comparison section, calls `buildComparisonView()`.
+
+**Key JS functions added:**
+- `renderGridWithDiff(containerId, nashStratData, explStratData)` — renders the exploitative grid then adds `.cell-added` (green outline) or `.cell-removed` (red outline) classes by comparing each cell's probability against Nash threshold (≥ 0.5).
+- `diffStats(nashStratData, explStratData) -> {added, removed}` — counts hands added/removed (iterates 13×13 grid cells).
+- `evDeltaHtml(label, delta) -> string` — returns HTML for a colored chip: positive = green, negative = red, neutral = grey.
+- `makeCompPositionBlock(posKey, posLabel, gridPrefix, nashStrats, explStrats, comparison) -> HTMLElement` — builds one push position block (title + grid pair + EV delta chip). Returns DOM element before grids are rendered (caller renders after appending to DOM).
+- `buildComparisonPushCol()` — clears `#comp-push-col`, appends 3 position blocks, renders all 6 grids (3 Nash + 3 Expl with diff).
+- `renderCompCallGrid(key)` — renders Nash and Expl call grids for the selected scenario, updates `#comp-call-ev` chip.
+- `buildComparisonView()` — called once per view switch; updates exploitability banner, calls `buildComparisonPushCol()`, builds call dropdown (idempotent — skips if already built), calls `renderCompCallGrid()`.
+
+**EV delta data source:** `explData.comparison[strategy_key]` = `float(np.mean(nl_ev - nash_ev))` from `compare_vs_nash()` in `nodelock.py`. Represents mean EV delta (bb) per hand across all 169 canonical hands for that strategy's decision. Push positions show push_co, push_btn_open, push_sb_open deltas; call section shows delta for the selected call scenario.
+
+**Deviation from spec:** Spec said "side-by-side view" as a toggle — implemented as a third toggle button ("Compare") alongside existing Nash/Exploitative buttons. The comparison section shows the 3 push positions stacked vertically (not horizontally) so pairs fit on screen (each pair needs ~824px; stacked layout works on ~900px+ screens).
 
 ### 6.6 — Tooltips and polish
 - [ ] Hover on grid cell: hand name, EV(push), EV(fold), equity, combos
