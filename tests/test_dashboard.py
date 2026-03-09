@@ -130,7 +130,6 @@ class TestMatrixMissing503:
 
 class TestStubEndpoints501:
     @pytest.mark.parametrize("url,method", [
-        ("/api/nodelock", "POST"),
         ("/api/hand_equity", "GET"),
         ("/api/hand_info", "GET"),
         ("/api/range", "GET"),
@@ -276,3 +275,191 @@ class TestCorsHeaders:
     def test_cors_header_on_501_response(self, client):
         resp = client.get("/api/solve")
         assert resp.headers.get("Access-Control-Allow-Origin") == "*"
+
+
+# ---------------------------------------------------------------------------
+# /api/nodelock — task 5.3
+# ---------------------------------------------------------------------------
+
+def _make_nodelock_result() -> SolverResult:
+    """Minimal nodelock SolverResult with non-zero exploitability."""
+    strategies = {name: np.zeros(169) for name in [
+        "push_co", "push_btn_open", "push_sb_open",
+        "call_btn_vs_co",
+        "call_sb_vs_co", "call_sb_vs_btn", "call_sb_vs_co_btn",
+        "call_bb_vs_sb", "call_bb_vs_btn", "call_bb_vs_co",
+        "call_bb_vs_btn_sb", "call_bb_vs_co_sb", "call_bb_vs_co_btn",
+        "call_bb_vs_co_btn_sb",
+    ]}
+    ev_table = {name: np.ones(169) * 0.1 for name in strategies}
+    return SolverResult(
+        strategies=strategies,
+        ev_table=ev_table,
+        iterations=10,
+        converged=True,
+        exploitability=0.05,
+    )
+
+
+class TestNodelockEndpoint:
+    @pytest.fixture
+    def client_ready(self):
+        """Matrix loaded, Nash result available."""
+        nash = _make_nash_result()
+        with patch("src.dashboard.matrix_loaded", True), \
+             patch("src.dashboard._nash_result", nash):
+            yield app.test_client()
+
+    @pytest.fixture
+    def client_nash_none(self):
+        """Matrix loaded but Nash result is None."""
+        with patch("src.dashboard.matrix_loaded", True), \
+             patch("src.dashboard._nash_result", None):
+            yield app.test_client()
+
+    # --- 503 when matrix missing ---
+
+    def test_503_when_no_matrix(self, client_no_matrix):
+        resp = client_no_matrix.post("/api/nodelock", json={"locks": {"CO": 45}})
+        assert resp.status_code == 503
+
+    # --- 500 when nash result not ready ---
+
+    def test_500_when_nash_none(self, client_nash_none):
+        with patch("src.dashboard.nodelock_solve", return_value=_make_nodelock_result()):
+            resp = client_nash_none.post("/api/nodelock", json={"locks": {"CO": 45}})
+        assert resp.status_code == 500
+        data = json.loads(resp.data)
+        assert "error" in data
+
+    # --- 400 bad requests ---
+
+    def test_400_missing_body(self, client_ready):
+        resp = client_ready.post("/api/nodelock", data="not json",
+                                 content_type="application/json")
+        assert resp.status_code == 400
+
+    def test_400_no_locks_key(self, client_ready):
+        resp = client_ready.post("/api/nodelock", json={"foo": "bar"})
+        assert resp.status_code == 400
+
+    def test_400_empty_locks(self, client_ready):
+        resp = client_ready.post("/api/nodelock", json={"locks": {}})
+        assert resp.status_code == 400
+
+    def test_400_unknown_lock_key(self, client_ready):
+        resp = client_ready.post("/api/nodelock", json={"locks": {"UNKNOWN_POS": 45}})
+        assert resp.status_code == 400
+
+    def test_400_invalid_range_notation(self, client_ready):
+        resp = client_ready.post("/api/nodelock", json={"locks": {"CO": "BADHAND+++"}})
+        assert resp.status_code == 400
+
+    def test_400_pct_out_of_range(self, client_ready):
+        resp = client_ready.post("/api/nodelock", json={"locks": {"CO": 150.0}})
+        assert resp.status_code == 400
+
+    def test_400_invalid_value_type(self, client_ready):
+        resp = client_ready.post("/api/nodelock", json={"locks": {"CO": [1, 2, 3]}})
+        assert resp.status_code == 400
+
+    # --- 200 success (mocked nodelock_solve + compare_vs_nash) ---
+
+    @pytest.fixture
+    def client_mocked_solve(self):
+        """Patch nodelock_solve and compare_vs_nash to avoid heavy compute."""
+        nash = _make_nash_result()
+        nl = _make_nodelock_result()
+        comparison = {
+            "push_co": 0.01, "exploitability_nash": 0.0012,
+            "exploitability_nodelock": 0.05, "exploitability_delta": 0.0488,
+        }
+        with patch("src.dashboard.matrix_loaded", True), \
+             patch("src.dashboard._nash_result", nash), \
+             patch("src.dashboard.nodelock_solve", return_value=nl), \
+             patch("src.dashboard.compare_vs_nash", return_value=comparison):
+            yield app.test_client()
+
+    def test_200_with_pct_lock(self, client_mocked_solve):
+        resp = client_mocked_solve.post("/api/nodelock", json={"locks": {"CO": 45}})
+        assert resp.status_code == 200
+
+    def test_200_with_range_notation_lock(self, client_mocked_solve):
+        resp = client_mocked_solve.post("/api/nodelock",
+                                        json={"locks": {"BTN_open": "22+,A2s+"}})
+        assert resp.status_code == 200
+
+    def test_200_with_direct_strategy_name(self, client_mocked_solve):
+        resp = client_mocked_solve.post("/api/nodelock",
+                                        json={"locks": {"push_co": 30}})
+        assert resp.status_code == 200
+
+    def test_response_has_strategies_key(self, client_mocked_solve):
+        data = json.loads(client_mocked_solve.post(
+            "/api/nodelock", json={"locks": {"CO": 20}}).data)
+        assert "strategies" in data
+
+    def test_response_has_ev_table_key(self, client_mocked_solve):
+        data = json.loads(client_mocked_solve.post(
+            "/api/nodelock", json={"locks": {"CO": 20}}).data)
+        assert "ev_table" in data
+
+    def test_response_has_metadata_key(self, client_mocked_solve):
+        data = json.loads(client_mocked_solve.post(
+            "/api/nodelock", json={"locks": {"CO": 20}}).data)
+        assert "metadata" in data
+
+    def test_response_has_comparison_key(self, client_mocked_solve):
+        data = json.loads(client_mocked_solve.post(
+            "/api/nodelock", json={"locks": {"CO": 20}}).data)
+        assert "comparison" in data
+
+    def test_metadata_keys(self, client_mocked_solve):
+        data = json.loads(client_mocked_solve.post(
+            "/api/nodelock", json={"locks": {"CO": 20}}).data)
+        meta = data["metadata"]
+        assert "iterations" in meta
+        assert "converged" in meta
+        assert "exploitability" in meta
+
+    def test_metadata_values(self, client_mocked_solve):
+        data = json.loads(client_mocked_solve.post(
+            "/api/nodelock", json={"locks": {"CO": 20}}).data)
+        meta = data["metadata"]
+        assert meta["iterations"] == 10
+        assert meta["converged"] is True
+        assert abs(meta["exploitability"] - 0.05) < 1e-9
+
+    def test_strategies_has_14_keys(self, client_mocked_solve):
+        data = json.loads(client_mocked_solve.post(
+            "/api/nodelock", json={"locks": {"CO": 20}}).data)
+        assert len(data["strategies"]) == 14
+
+    def test_strategy_has_169_hands(self, client_mocked_solve):
+        data = json.loads(client_mocked_solve.post(
+            "/api/nodelock", json={"locks": {"CO": 20}}).data)
+        assert len(data["strategies"]["push_co"]) == 169
+
+    def test_strategy_uses_canonical_hand_names(self, client_mocked_solve):
+        data = json.loads(client_mocked_solve.post(
+            "/api/nodelock", json={"locks": {"CO": 20}}).data)
+        push_co = data["strategies"]["push_co"]
+        assert "AA" in push_co
+        assert "72o" in push_co
+        assert set(push_co.keys()) == set(HAND_NAMES)
+
+    def test_comparison_exploitability_keys(self, client_mocked_solve):
+        data = json.loads(client_mocked_solve.post(
+            "/api/nodelock", json={"locks": {"CO": 20}}).data)
+        cmp = data["comparison"]
+        assert "exploitability_nash" in cmp
+        assert "exploitability_nodelock" in cmp
+        assert "exploitability_delta" in cmp
+
+    def test_comparison_values(self, client_mocked_solve):
+        data = json.loads(client_mocked_solve.post(
+            "/api/nodelock", json={"locks": {"CO": 20}}).data)
+        cmp = data["comparison"]
+        assert abs(cmp["exploitability_nash"] - 0.0012) < 1e-9
+        assert abs(cmp["exploitability_nodelock"] - 0.05) < 1e-9
+        assert abs(cmp["exploitability_delta"] - 0.0488) < 1e-9

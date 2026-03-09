@@ -11,8 +11,9 @@ import numpy as np
 from flask import Flask, jsonify, request
 
 from src.equity import load_equity_matrix
-from src.hands import COMBO_WEIGHTS, HAND_NAMES
-from src.solver import SolverResult, solve_nash
+from src.hands import COMBO_WEIGHTS, HAND_NAMES, parse_range, range_to_mask
+from src.nodelock import compare_vs_nash, lock_from_range_pct, nodelock_solve
+from src.solver import STRATEGY_NAMES, SolverResult, solve_nash
 
 # ---------------------------------------------------------------------------
 # App and matrix initialisation
@@ -120,16 +121,105 @@ def solve():
     }), 200
 
 
+# Mapping from friendly short names to canonical strategy names.
+# Also accepts strategy names directly (push_co, call_bb_vs_sb, etc.).
+_LOCK_KEY_MAP: dict[str, str] = {
+    "CO":             "push_co",
+    "BTN_open":       "push_btn_open",
+    "SB_open":        "push_sb_open",
+    "BTN_vs_CO":      "call_btn_vs_co",
+    "SB_vs_CO":       "call_sb_vs_co",
+    "SB_vs_BTN":      "call_sb_vs_btn",
+    "SB_vs_CO_BTN":   "call_sb_vs_co_btn",
+    "BB_vs_SB":       "call_bb_vs_sb",
+    "BB_vs_BTN":      "call_bb_vs_btn",
+    "BB_vs_CO":       "call_bb_vs_co",
+    "BB_vs_BTN_SB":   "call_bb_vs_btn_sb",
+    "BB_vs_CO_SB":    "call_bb_vs_co_sb",
+    "BB_vs_CO_BTN":   "call_bb_vs_co_btn",
+    "BB_vs_CO_BTN_SB":"call_bb_vs_co_btn_sb",
+}
+
+
 @app.route("/api/nodelock", methods=["POST"])
 def nodelock():
     """POST /api/nodelock — run exploitative nodelock solve.
 
     Body: {"locks": {"CO": 45, "BTN_open": "22+,A2s+"}}
-    Stub: returns 501 Not Implemented (task 5.3).
+
+    Each lock value is either:
+    - A number (0–100): treated as push % — top-N% of hands by strength.
+    - A string: parsed as range notation (e.g. "22+,A2s+").
+
+    Lock keys are friendly short names (e.g. "CO", "BTN_open") or direct
+    strategy names (e.g. "push_co", "call_bb_vs_sb").
+
+    Returns:
+        200 JSON: {strategies, ev_table, metadata, comparison}
+        400 JSON: if body is missing, lacks "locks", or locks is empty.
+        500 JSON: if Nash result is not ready or solve fails.
+        503 JSON: if equity matrix is not loaded.
     """
     if not matrix_loaded:
         return _matrix_unavailable()
-    return jsonify({"error": "Not implemented"}), 501
+    if _nash_result is None:
+        return jsonify({"error": "Nash result not ready", "detail": "Solver did not produce a result at startup"}), 500
+
+    body = request.get_json(silent=True)
+    if body is None or "locks" not in body or not body["locks"]:
+        return jsonify({"error": "Bad request", "detail": "Body must contain a non-empty 'locks' object"}), 400
+
+    locked_strategies: dict[str, np.ndarray] = {}
+    for key, value in body["locks"].items():
+        strategy_name = _LOCK_KEY_MAP.get(key, key)
+        if strategy_name not in STRATEGY_NAMES:
+            return jsonify({"error": "Bad request", "detail": f"Unknown lock key: {key!r}"}), 400
+
+        if isinstance(value, (int, float)):
+            pct = float(value)
+            if not (0.0 <= pct <= 100.0):
+                return jsonify({"error": "Bad request", "detail": f"Percentage must be 0–100, got {pct}"}), 400
+            arr = lock_from_range_pct(pct, COMBO_WEIGHTS)
+        elif isinstance(value, str):
+            try:
+                hands = parse_range(value)
+                if not hands:
+                    return jsonify({"error": "Bad request", "detail": f"Range notation {value!r} matched no hands"}), 400
+                arr = range_to_mask(hands)
+            except (KeyError, Exception) as exc:
+                return jsonify({"error": "Bad request", "detail": f"Invalid range notation {value!r}: {exc}"}), 400
+        else:
+            return jsonify({"error": "Bad request", "detail": f"Lock value must be a number or string, got {type(value).__name__}"}), 400
+
+        locked_strategies[strategy_name] = arr
+
+    try:
+        nl_result = nodelock_solve(equity_matrix, COMBO_WEIGHTS, locked_strategies)
+    except ValueError as exc:
+        return jsonify({"error": "Bad request", "detail": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": "Solve failed", "detail": str(exc)}), 500
+
+    comparison = compare_vs_nash(_nash_result, nl_result)
+
+    strategies = {
+        name: dict(zip(HAND_NAMES, arr.tolist()))
+        for name, arr in nl_result.strategies.items()
+    }
+    ev_table = {
+        name: dict(zip(HAND_NAMES, arr.tolist()))
+        for name, arr in nl_result.ev_table.items()
+    }
+    return jsonify({
+        "strategies": strategies,
+        "ev_table": ev_table,
+        "metadata": {
+            "iterations": nl_result.iterations,
+            "converged": nl_result.converged,
+            "exploitability": nl_result.exploitability,
+        },
+        "comparison": comparison,
+    }), 200
 
 
 @app.route("/api/hand_equity", methods=["GET"])

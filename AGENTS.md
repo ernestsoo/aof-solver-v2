@@ -780,12 +780,28 @@ started, no importlib.reload. Full suite: **218 passed, 1 skipped in 1.26s** ✓
   - `solve() -> Response` at `GET /api/solve`
 
 ### 5.3 — Nodelock endpoint
-- [ ] `/api/nodelock` POST
-- [ ] Body: `{"locks": {"CO": 45, "BTN_open": "22+,A2s+"}}` — accepts % or notation
-- [ ] Return nodelock result + Nash comparison
+- [x] `/api/nodelock` POST
+- [x] Body: `{"locks": {"CO": 45, "BTN_open": "22+,A2s+"}}` — accepts % or notation
+- [x] Return nodelock result + Nash comparison
 
 **Notes:**
-_(agent fills in after completing)_
+- Added `_LOCK_KEY_MAP: dict[str, str]` in `src/dashboard.py` — maps 14 friendly short names
+  (e.g. "CO" → "push_co", "BTN_open" → "push_btn_open") plus pass-through for direct strategy names.
+- Imported `nodelock_solve`, `compare_vs_nash`, `lock_from_range_pct` from `src.nodelock`;
+  `parse_range`, `range_to_mask` from `src.hands`; `STRATEGY_NAMES` from `src.solver`.
+- Numeric lock value (0–100) → `lock_from_range_pct(pct, COMBO_WEIGHTS)`.
+- String lock value → `range_to_mask(parse_range(notation))`; returns 400 if result is empty
+  (catches silently-ignored invalid tokens like "BADHAND+++").
+- Returns 503 (no matrix), 500 (Nash result None or solve error), 400 (bad body/locks/key/value).
+- Response shape: `{strategies, ev_table, metadata, comparison}` mirroring `/api/solve` + comparison dict.
+- `comparison` dict from `compare_vs_nash(nash, nl)`: one float per strategy name + 3 exploitability keys.
+- Removed `/api/nodelock` from `TestStubEndpoints501` parametrize list.
+- Added `TestNodelockEndpoint` class in `tests/test_dashboard.py` (17 tests) with `client_mocked_solve`
+  fixture patching `nodelock_solve` and `compare_vs_nash` for fast tests.
+- All 253 tests pass (1 skipped). ✓
+- Key signatures:
+  - `_LOCK_KEY_MAP: dict[str, str]` in `src/dashboard.py`
+  - `nodelock() -> Response` at `POST /api/nodelock`
 
 ### 5.4 — Utility endpoints
 - [ ] `/api/hand_equity?hand=AKs&vs=top30` — equity lookup
