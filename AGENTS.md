@@ -718,14 +718,44 @@ decorated with `pytest.mark.skipif` checking `_MATRIX_EXISTS`). Nash fixture use
 ## Phase 5: Dashboard Backend (`src/dashboard.py`)
 
 ### 5.1 — Flask app skeleton
-- [ ] Create `src/dashboard.py`
-- [ ] Flask app, load equity matrix at startup
-- [ ] If matrix missing: all endpoints return 503
-- [ ] CORS headers for local development
-- [ ] `if __name__ == '__main__': app.run(host='0.0.0.0', port=5000, debug=True)`
+- [x] Create `src/dashboard.py`
+- [x] Flask app, load equity matrix at startup
+- [x] If matrix missing: all endpoints return 503
+- [x] CORS headers for local development
+- [x] `if __name__ == '__main__': app.run(host='0.0.0.0', port=5000, debug=True)`
 
 **Notes:**
-_(agent fills in after completing)_
+Created `src/dashboard.py`. Key decisions:
+
+- Matrix loaded via `load_equity_matrix(_MATRIX_PATH)` in a try/except at module level.
+  Sets module-level `equity_matrix: np.ndarray | None` and `matrix_loaded: bool`.
+- CORS handled by `@app.after_request` hook (manual headers; flask-cors not installed).
+  Adds `Access-Control-Allow-Origin: *`, `Allow-Methods: GET, POST, OPTIONS`,
+  `Allow-Headers: Content-Type, Authorization` on every response.
+- OPTIONS pre-flight route: `@app.route("/api/<path:_>", methods=["OPTIONS"])` returns 200.
+- `_matrix_unavailable()` helper returns `({"error": ..., "matrix_loaded": False}, 503)`.
+- `/api/health` always returns 200 with `{"status": "ok", "matrix_loaded": <bool>}`.
+- Stub routes (all return 501 when matrix loaded, 503 when missing):
+  - `GET /api/solve`
+  - `POST /api/nodelock`
+  - `GET /api/hand_equity`
+  - `GET /api/hand_info`
+  - `GET /api/range`
+
+**Functions/routes created:**
+- `add_cors_headers(response)` — `@app.after_request` hook
+- `options_handler(_)` — `@app.route("/api/<path:_>", methods=["OPTIONS"])`
+- `_matrix_unavailable() -> tuple` — helper returning 503 JSON
+- `health() -> Response` — `GET /api/health`
+- `solve() -> Response` — `GET /api/solve` (stub, 501)
+- `nodelock() -> Response` — `POST /api/nodelock` (stub, 501)
+- `hand_equity() -> Response` — `GET /api/hand_equity` (stub, 501)
+- `hand_info() -> Response` — `GET /api/hand_info` (stub, 501)
+- `range_expand() -> Response` — `GET /api/range` (stub, 501)
+
+Created `tests/test_dashboard.py` (30 tests, 30 passed in 0.31s). Tests use
+`patch("src.dashboard.matrix_loaded", True/False)` as context manager — no server
+started, no importlib.reload. Full suite: **218 passed, 1 skipped in 1.26s** ✓
 
 ### 5.2 — Solve endpoint
 - [ ] `/api/solve` GET — precompute Nash at startup, cache in memory
